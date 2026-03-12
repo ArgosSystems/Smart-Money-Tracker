@@ -17,12 +17,15 @@ Design notes
                  (Base, Arb) need short intervals; Ethereum is fine at 12 s.
 - coingecko_platform: used to build the CoinGecko token-price URL so prices
                       are fetched against the correct chain's contract registry.
+- chain_type:   "evm" (default) or "solana".  Controls which scanner class
+                MultiChainTracker instantiates.  EVM chains use web3.py block
+                polling; Solana uses slot-range scanning via JSON-RPC 2.0.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -31,22 +34,27 @@ class ChainConfig:
     chain_id: int
     rpc_url_env: str          # env var name  → full RPC URL
     explorer: str             # base domain,  e.g. "etherscan.io"
-    native_token: str         # "ETH" / "MATIC" etc.
+    native_token: str         # "ETH" / "SOL" etc.
 
     # ── Display ───────────────────────────────────────────────────────────────
     color_hex: str            # hex string for Discord embed sidebar
     emoji: str                # one-char emoji shown in alerts
 
     # ── Timing ───────────────────────────────────────────────────────────────
-    block_time: float         # approximate seconds per block
+    block_time: float         # approximate seconds per block/slot
     poll_interval: int        # scan cycle interval in seconds
 
     # ── External APIs ─────────────────────────────────────────────────────────
     coingecko_platform: str   # platform slug for CoinGecko token-price endpoint
 
-    # ── Well-known contract addresses on this chain ───────────────────────────
+    # ── Well-known contract/mint addresses on this chain ─────────────────────
     usdc_address: str         # native USDC (for USD value fallback)
-    weth_address: str         # wrapped ETH  (for price lookups)
+    weth_address: str         # wrapped ETH / wSOL (for price lookups)
+
+    # ── Scanner type ──────────────────────────────────────────────────────────
+    # "evm"    → EvmChainScanner  (block polling, eth_getLogs)
+    # "solana" → SolanaScanner    (slot-range, getSignaturesForAddress)
+    chain_type: str = field(default="evm")
 
     # ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -61,11 +69,12 @@ class ChainConfig:
         Resolve the RPC URL for this chain.
         Checks the chain-specific env var first; then falls back to deriving
         from ALCHEMY_API_KEY if that is set.  This mirrors settings.get_rpc_url().
+        Solana (HELIUS_RPC_URL) auto-derives from HELIUS_API_KEY if not explicit.
         """
         explicit = os.environ.get(self.rpc_url_env, "")
         if explicit:
             return explicit
-        # Fallback: derive from the legacy single-key env var
+        # Fallback: derive from the legacy single-key env var (EVM only)
         api_key = os.environ.get("ALCHEMY_API_KEY", "")
         if api_key:
             subdomain_map = {
@@ -79,6 +88,11 @@ class ChainConfig:
             subdomain = subdomain_map.get(self.rpc_url_env, "")
             if subdomain:
                 return f"https://{subdomain}.g.alchemy.com/v2/{api_key}"
+        # Helius auto-derivation from HELIUS_API_KEY
+        if self.rpc_url_env == "HELIUS_RPC_URL":
+            helius_key = os.environ.get("HELIUS_API_KEY", "")
+            if helius_key:
+                return f"https://mainnet.helius-rpc.com/?api-key={helius_key}"
         return ""
 
     @property
@@ -173,6 +187,22 @@ CHAINS: dict[str, ChainConfig] = {
         coingecko_platform="optimistic-ethereum",
         usdc_address="0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
         weth_address="0x4200000000000000000000000000000000000006",
+    ),
+    "solana": ChainConfig(
+        chain_id=0,           # Solana has no numeric EVM chain_id
+        rpc_url_env="HELIUS_RPC_URL",
+        explorer="solscan.io",
+        native_token="SOL",
+        color_hex="#9945FF",
+        emoji="◎",
+        block_time=0.4,       # ~400ms per slot (2.5 slots/s)
+        poll_interval=4,      # scan every 4s → covers ~10 slots per cycle
+        coingecko_platform="solana",
+        # SPL USDC mint (base58, 44 chars)
+        usdc_address="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        # Wrapped SOL mint
+        weth_address="So11111111111111111111111111111111111111112",
+        chain_type="solana",
     ),
 }
 

@@ -64,7 +64,9 @@ class Settings(BaseSettings):
     # URL is not set but this key is present, URLs are derived automatically.
     alchemy_api_key: str = ""
 
-    helius_api_key: str = ""  # Solana (future use)
+    helius_api_key: str = ""   # used to auto-derive helius_rpc_url if not set explicitly
+    helius_rpc_url: str = ""   # full Helius RPC URL for Solana mainnet
+                                # e.g. https://mainnet.helius-rpc.com/?api-key=<key>
 
     # ── Database ─────────────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./crypto_bots.db"
@@ -130,8 +132,17 @@ class Settings(BaseSettings):
     def get_rpc_url(self, chain_name: str) -> str:
         """
         Return the RPC URL for a chain.  Prefers explicit per-chain env vars;
-        falls back to deriving from alchemy_api_key if possible.
+        falls back to deriving from alchemy_api_key (EVM) or helius_api_key (Solana).
         """
+        # ── Solana ────────────────────────────────────────────────────────────
+        if chain_name == "solana":
+            if self.helius_rpc_url:
+                return self.helius_rpc_url
+            if self.helius_api_key:
+                return f"https://mainnet.helius-rpc.com/?api-key={self.helius_api_key}"
+            return ""
+
+        # ── EVM chains ────────────────────────────────────────────────────────
         mapping = {
             "ethereum": (self.alchemy_eth,     "eth-mainnet"),
             "base":     (self.alchemy_base,    "base-mainnet"),
