@@ -303,7 +303,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| 1.6.0 | 2026-03-12 | discord.py 2.7.1, Components V2, 18 slash commands, /help, /invite, API_BASE_URL, DISCORD_OAUTH_LINK |
+| 1.6.0 | 2026-03-12 | **PUBLIC LAUNCH** discord.py 2.7.1, Components V2, 18 slash commands, /help, /invite, API_BASE_URL, DISCORD_OAUTH_LINK |
 | 1.5.0 | 2026-03-12 | Portfolio wallet tracking with balance snapshots |
 | 1.4.0 | 2026-03-12 | Price alert rules system with WebSocket broadcast |
 | 1.3.0 | 2026-03-12 | WebSocket real-time alert stream |
