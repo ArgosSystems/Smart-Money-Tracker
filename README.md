@@ -15,7 +15,7 @@
 
 Smart Money Tracker monitors wallets on **Ethereum, Base, Arbitrum, BSC, Polygon, and Optimism** for large transactions, calculates USD values, and delivers beautiful alerts to your favorite messaging platform. Perfect for traders, researchers, and crypto enthusiasts who want to follow the "smart money."
 
-**Founded by [@yourhandle](https://github.com/yourhandle)**  
+**Founded by [@yourhandle](https://github.com/ArgosSystems)**  
 Architected with Claude Code • Multi-chain vision • Smart Money labels
 
 **Accelerated by [@aymenelouadi](https://github.com/aymenelouadi)**  
