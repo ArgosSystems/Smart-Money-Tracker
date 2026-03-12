@@ -5,23 +5,27 @@ Multi-chain whale tracking engine.
 
 Classes
 -------
-ChainScanner        – one Web3 connection + scanning logic for a single chain
-MultiChainTracker   – orchestrates N ChainScanners concurrently
+BaseChainScanner    – abstract interface that all chain scanners implement
+EvmChainScanner     – EVM chains (Ethereum, Base, Arbitrum, BSC, Polygon, Optimism)
+MultiChainTracker   – orchestrates N scanners concurrently (one asyncio task per chain)
 
-Each chain runs in its own asyncio task at its own polling interval:
-  Ethereum → every 12 s  (one ~12 s block)
-  Base     → every  2 s  (one  ~2 s block)
-  Arbitrum → every  1 s  (batches ~4 x 0.25 s blocks)
+The abstraction layer
+---------------------
+BaseChainScanner defines three abstract methods:
+    is_healthy()          → bool
+    get_latest_block()    → int   (returns slot number for Solana)
+    scan_block(n)         → list[WhaleAlert]
 
-Design principles
------------------
-- ChainScanner is stateless w.r.t. the database — it creates its own
-  short-lived sessions so concurrent chains don't share a transaction.
-- scan_block() fetches *all* ERC-20 Transfer events for a block in one
-  eth_getLogs call, then filters client-side to tracked addresses.  This
-  is far cheaper than one getLogs call per wallet.
-- Prices are cached per chain per scan cycle to minimise CoinGecko calls.
-- Chains with no RPC URL configured are silently skipped.
+And one concrete default:
+    scan_range(from, to)  → calls scan_block() in MAX_CONCURRENT_SCANS batches
+
+SolanaScanner (api/services/solana_scanner.py) overrides scan_range() with
+getSignaturesForAddress per wallet, which is far more efficient than scanning
+individual Solana slots.
+
+MultiChainTracker._build_scanners() dispatches on chain_type:
+    "evm"    → EvmChainScanner
+    "solana" → SolanaScanner
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ import asyncio
 import json
 import logging
 import time
+from abc import ABC, abstractmethod
 from typing import Any, Optional, cast
 
 import httpx
@@ -75,14 +80,107 @@ class _PriceCache:
         self._data[key] = (price, time.monotonic() + self.TTL)
 
 
-# Module-level ETH price cache — shared across ALL ChainScanner instances so
-# three concurrent chains don't each make their own CoinGecko call every cycle.
+# Module-level ETH price cache — shared across ALL EvmChainScanner instances so
+# concurrent chains don't each make their own CoinGecko call every cycle.
 _SHARED_ETH_PRICE_CACHE = _PriceCache()
 
 
-# ── ChainScanner ──────────────────────────────────────────────────────────────
+# ── Abstract base scanner ─────────────────────────────────────────────────────
 
-class ChainScanner:
+class BaseChainScanner(ABC):
+    """
+    Abstract interface for all chain scanners.
+
+    Each concrete implementation (EvmChainScanner, SolanaScanner) handles
+    one chain's RPC protocol.  MultiChainTracker talks only to this interface.
+
+    scan_range() default: calls scan_block() for each block/slot in batches of
+    MAX_CONCURRENT_SCANS.  Solana overrides this with a single per-wallet RPC
+    covering the entire slot range, which is far cheaper.
+    """
+
+    MAX_CONCURRENT_SCANS = 5
+
+    def __init__(self, chain_name: str, config: ChainConfig, rpc_url: str) -> None:
+        self.chain_name = chain_name
+        self.config     = config
+        self._rpc_url   = rpc_url
+
+    @abstractmethod
+    async def is_healthy(self) -> bool:
+        """Ping the RPC; return True if reachable within 5 s."""
+
+    @abstractmethod
+    async def get_latest_block(self) -> int:
+        """Return the latest confirmed block number (or slot for Solana)."""
+
+    @abstractmethod
+    async def scan_block(self, block_number: int) -> list[WhaleAlert]:
+        """Scan a single block/slot and return new WhaleAlerts."""
+
+    async def scan_range(self, from_block: int, to_block: int) -> list[WhaleAlert]:
+        """
+        Scan all blocks in [from_block, to_block].
+
+        Default: calls scan_block() for each in batches of MAX_CONCURRENT_SCANS.
+        Override for chains (e.g. Solana) that support range-based queries.
+        """
+        blocks = list(range(from_block, to_block + 1))
+        results: list[WhaleAlert] = []
+        for i in range(0, len(blocks), self.MAX_CONCURRENT_SCANS):
+            batch = blocks[i : i + self.MAX_CONCURRENT_SCANS]
+            batch_results = await asyncio.gather(
+                *[self.scan_block(b) for b in batch],
+                return_exceptions=True,
+            )
+            for r in batch_results:
+                if isinstance(r, list):
+                    results.extend(r)
+        return results
+
+    # ── Shared DB helpers (available to all subclasses) ───────────────────────
+
+    async def _load_wallets(self, db: AsyncSession) -> list[TrackedWallet]:
+        result = await db.execute(
+            select(TrackedWallet).where(
+                and_(TrackedWallet.chain == self.chain_name, TrackedWallet.is_active == True)  # noqa: E712
+            )
+        )
+        return list(result.scalars().all())
+
+    async def _alert_exists(self, db: AsyncSession, tx_hash: str) -> bool:
+        return bool(await db.scalar(
+            select(WhaleAlert).where(
+                and_(WhaleAlert.tx_hash == tx_hash, WhaleAlert.chain == self.chain_name)
+            )
+        ))
+
+    async def _upsert_token_activity(
+        self, db: AsyncSession, token_address: str, symbol: str, direction: str, usd_value: float
+    ) -> None:
+        row = await db.scalar(
+            select(TokenActivity).where(
+                and_(TokenActivity.token_address == token_address, TokenActivity.chain == self.chain_name)
+            )
+        )
+        if row is None:
+            row = TokenActivity(
+                chain=self.chain_name,
+                token_address=token_address,
+                token_symbol=symbol,
+            )
+            db.add(row)
+
+        if direction == "BUY":
+            row.buy_count += 1
+        else:
+            row.sell_count += 1
+        row.total_volume_usd += usd_value
+
+
+# ── EvmChainScanner ───────────────────────────────────────────────────────────
+
+class EvmChainScanner(BaseChainScanner):
     """
     Scans a single EVM chain for whale transactions.
 
@@ -91,12 +189,11 @@ class ChainScanner:
     is_healthy()           → bool
     get_latest_block()     → int
     scan_block(n)          → list[WhaleAlert]   (creates its own DB session)
+    scan_range(from, to)   → uses default BaseChainScanner batched implementation
     """
 
     def __init__(self, chain_name: str, config: ChainConfig, rpc_url: str) -> None:
-        self.chain_name = chain_name
-        self.config = config
-        self._rpc_url = rpc_url
+        super().__init__(chain_name, config, rpc_url)
         self._w3: Optional[AsyncWeb3] = None
         self._token_meta_cache: dict[str, dict] = {}
         self._price_cache = _PriceCache()
@@ -219,14 +316,6 @@ class ChainScanner:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    async def _load_wallets(self, db: AsyncSession) -> list[TrackedWallet]:
-        result = await db.execute(
-            select(TrackedWallet).where(
-                and_(TrackedWallet.chain == self.chain_name, TrackedWallet.is_active == True)  # noqa: E712
-            )
-        )
-        return list(result.scalars().all())
-
     async def _process_erc20_log(
         self,
         log: Any,
@@ -345,35 +434,6 @@ class ChainScanner:
         )
         return alert
 
-    async def _alert_exists(self, db: AsyncSession, tx_hash: str) -> bool:
-        return bool(await db.scalar(
-            select(WhaleAlert).where(
-                and_(WhaleAlert.tx_hash == tx_hash, WhaleAlert.chain == self.chain_name)
-            )
-        ))
-
-    async def _upsert_token_activity(
-        self, db: AsyncSession, token_address: str, symbol: str, direction: str, usd_value: float
-    ) -> None:
-        row = await db.scalar(
-            select(TokenActivity).where(
-                and_(TokenActivity.token_address == token_address, TokenActivity.chain == self.chain_name)
-            )
-        )
-        if row is None:
-            row = TokenActivity(
-                chain=self.chain_name,
-                token_address=token_address,
-                token_symbol=symbol,
-            )
-            db.add(row)
-
-        if direction == "BUY":
-            row.buy_count += 1
-        else:
-            row.sell_count += 1
-        row.total_volume_usd += usd_value
-
     async def _get_token_meta(self, token_address: str) -> dict:
         if token_address in self._token_meta_cache:
             return self._token_meta_cache[token_address]
@@ -447,14 +507,23 @@ class ChainScanner:
             return 0.0
 
 
+# Backwards-compatible alias (existing code that imports ChainScanner still works)
+ChainScanner = EvmChainScanner
+
+
 # ── MultiChainTracker ─────────────────────────────────────────────────────────
 
 class MultiChainTracker:
     """
-    Orchestrates one ChainScanner per configured chain.
+    Orchestrates one scanner per configured chain.
 
     Each chain runs in its own asyncio Task at its own poll interval.
     Chains whose RPC URL env var is empty are skipped with a log warning.
+
+    Scanner dispatch
+    ----------------
+    chain_type == "evm"    → EvmChainScanner  (web3.py, eth_getLogs)
+    chain_type == "solana" → SolanaScanner    (httpx JSON-RPC, getSignaturesForAddress)
 
     Usage
     -----
@@ -463,9 +532,13 @@ class MultiChainTracker:
     """
 
     def __init__(self) -> None:
-        self.scanners: dict[str, ChainScanner] = {}
+        self.scanners: dict[str, BaseChainScanner] = {}
 
     def _build_scanners(self) -> None:
+        # Import SolanaScanner here to avoid circular imports and keep the
+        # web3 import in whale_tracker.py isolated from solana_scanner.py
+        from api.services.solana_scanner import SolanaScanner  # noqa: PLC0415
+
         for chain_name, config in CHAINS.items():
             rpc_url = settings.get_rpc_url(chain_name)
             if not rpc_url:
@@ -474,8 +547,17 @@ class MultiChainTracker:
                     chain_name, config.rpc_url_env
                 )
                 continue
-            self.scanners[chain_name] = ChainScanner(chain_name, config, rpc_url)
-            logger.info("Chain '%s' registered (poll_interval=%ds)", chain_name, config.poll_interval)
+
+            if config.chain_type == "solana":
+                scanner: BaseChainScanner = SolanaScanner(chain_name, config, rpc_url)
+            else:
+                scanner = EvmChainScanner(chain_name, config, rpc_url)
+
+            self.scanners[chain_name] = scanner
+            logger.info(
+                "Chain '%s' registered (%s scanner, poll_interval=%ds)",
+                chain_name, config.chain_type, config.poll_interval
+            )
 
     async def _health_check(self) -> None:
         """Log RPC health for every configured scanner at startup."""
@@ -514,19 +596,25 @@ class MultiChainTracker:
         Infinite loop for one chain.
 
         On each tick:
-        - ask the RPC for the latest block
+        - ask the RPC for the latest block/slot
         - compute new blocks since last tick (capped at MAX_BACKFILL)
-        - scan each new block (up to MAX_CONCURRENT_SCANS concurrently)
+        - call scanner.scan_range(from, latest) — each scanner type handles
+          the range in the most efficient way for its protocol
         - sleep for poll_interval
-        """
-        scanner          = self.scanners[chain_name]
-        config           = CHAINS[chain_name]
-        last_block: Optional[int] = None
-        backoff          = config.poll_interval   # current sleep; grows on errors
 
-        MAX_BACKFILL         = 20
-        MAX_CONCURRENT_SCANS = 5
-        MAX_BACKOFF          = 300   # never wait more than 5 minutes after errors
+        Solana uses a larger MAX_BACKFILL (150 slots ≈ 60s worth of slots at
+        2.5 slots/s) vs EVM chains (20 blocks).
+        """
+        scanner = self.scanners[chain_name]
+        config  = CHAINS[chain_name]
+
+        last_block: Optional[int] = None
+        backoff = config.poll_interval
+
+        # Solana produces ~2.5 slots/s vs ~0.08 blocks/s for Ethereum
+        # Cap backfill to ~60s worth to avoid huge catch-up scans
+        MAX_BACKFILL = 150 if config.chain_type == "solana" else 20
+        MAX_BACKOFF  = 300  # never wait more than 5 minutes after errors
 
         logger.info("[%s] polling loop started (interval=%ds)", chain_name, config.poll_interval)
 
@@ -539,7 +627,6 @@ class MultiChainTracker:
                     logger.info("[%s] starting from block %d", chain_name, latest)
                 elif latest > last_block:
                     from_block = max(last_block + 1, latest - MAX_BACKFILL)
-                    blocks     = list(range(from_block, latest + 1))
                     missed     = latest - last_block - 1
                     if missed > MAX_BACKFILL:
                         logger.warning(
@@ -547,13 +634,7 @@ class MultiChainTracker:
                             chain_name, missed, MAX_BACKFILL
                         )
 
-                    for i in range(0, len(blocks), MAX_CONCURRENT_SCANS):
-                        batch = blocks[i : i + MAX_CONCURRENT_SCANS]
-                        await asyncio.gather(
-                            *[scanner.scan_block(b) for b in batch],
-                            return_exceptions=True,
-                        )
-
+                    await scanner.scan_range(from_block, latest)
                     last_block = latest
 
                 # Successful tick — reset backoff to normal
@@ -567,23 +648,21 @@ class MultiChainTracker:
                 err = str(exc)
 
                 if "403" in err or "Forbidden" in err:
-                    # Plan doesn't include this chain — no point retrying
                     logger.error(
-                        "[%s] 403 Forbidden — your Alchemy plan doesn't support this chain.\n"
+                        "[%s] 403 Forbidden — RPC plan doesn't support this chain.\n"
                         "  Fix options:\n"
-                        "    1. Enable the chain in your Alchemy dashboard (alchemy.com)\n"
+                        "    1. Check your provider dashboard (alchemy.com / helius.dev)\n"
                         "    2. Use a public RPC: set %s=<full_rpc_url> in .env\n"
                         "    3. Comment out the chain in config/chains.py to disable it\n"
                         "  Scanner stopped for this session.",
                         chain_name, config.rpc_url_env
                     )
-                    return   # stop this loop; other chains keep running
+                    return  # stop this loop; other chains keep running
 
                 elif "429" in err or "Too Many Requests" in err:
                     backoff = min(backoff * 2, MAX_BACKOFF)
                     logger.warning(
-                        "[%s] Rate limited (429) — poll interval too aggressive for your plan. "
-                        "Backing off to %ds.",
+                        "[%s] Rate limited (429) — backing off to %ds.",
                         chain_name, backoff
                     )
 
