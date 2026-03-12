@@ -42,6 +42,7 @@ CHAIN_COLORS: dict[str, discord.Color] = {
     "bsc":      discord.Color.from_str("#F3BA2F"),
     "polygon":  discord.Color.from_str("#8247E5"),
     "optimism": discord.Color.from_str("#FF0420"),
+    "solana":   discord.Color.from_str("#9945FF"),
 }
 
 CHAIN_EMOJI: dict[str, str] = {
@@ -51,6 +52,7 @@ CHAIN_EMOJI: dict[str, str] = {
     "bsc":      "🟡",
     "polygon":  "🟣",
     "optimism": "🔴",
+    "solana":   "◎",
 }
 
 CHAIN_EXPLORER: dict[str, str] = {
@@ -60,6 +62,7 @@ CHAIN_EXPLORER: dict[str, str] = {
     "bsc":      "bscscan.com",
     "polygon":  "polygonscan.com",
     "optimism": "optimistic.etherscan.io",
+    "solana":   "solscan.io",
 }
 
 CHAIN_CHOICES = [
@@ -69,6 +72,7 @@ CHAIN_CHOICES = [
     app_commands.Choice(name="🟡 BSC",      value="bsc"),
     app_commands.Choice(name="🟣 Polygon",  value="polygon"),
     app_commands.Choice(name="🔴 Optimism", value="optimism"),
+    app_commands.Choice(name="◎ Solana",   value="solana"),
 ]
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -170,6 +174,9 @@ def chain_color(chain: str) -> discord.Color:
 
 def tx_link(tx_hash: str, chain: str) -> str:
     explorer = CHAIN_EXPLORER.get(chain.lower(), "etherscan.io")
+    # Solana tx_hash is stored as "sig:mint" or "sig:SOL" — strip the suffix
+    if chain.lower() == "solana" and ":" in tx_hash:
+        tx_hash = tx_hash.split(":")[0]
     return f"https://{explorer}/tx/{tx_hash}"
 
 
