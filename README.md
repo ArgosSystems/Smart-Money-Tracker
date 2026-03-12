@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v1.5.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v1.7.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -13,7 +13,7 @@
 
 **Track whale wallets across multiple chains in real-time and get instant alerts on Discord or Telegram.**
 
-Smart Money Tracker monitors wallets on **Ethereum, Base, Arbitrum, BSC, Polygon, and Optimism** for large transactions, calculates USD values, and delivers beautiful alerts to your favorite messaging platform. Perfect for traders, researchers, and crypto enthusiasts who want to follow the "smart money."
+Smart Money Tracker monitors wallets on **Ethereum, Base, Arbitrum, BSC, Polygon, Optimism, and Solana** for large transactions, calculates USD values, and delivers beautiful alerts to your favorite messaging platform. Perfect for traders, researchers, and crypto enthusiasts who want to follow the "smart money."
 
 **Founded by [@ArgosSystems](https://github.com/ArgosSystems)**  
 Architected with Claude Code • Multi-chain vision • Smart Money labels
@@ -38,7 +38,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 
 | | Feature | Description |
 |---|---|---|
-| 🔗 | **Multi-Chain Support** | Monitor wallets on **Ethereum**, **Base**, **Arbitrum**, **BSC**, **Polygon**, and **Optimism** simultaneously |
+| 🔗 | **Multi-Chain Support** | Monitor wallets on **Ethereum**, **Base**, **Arbitrum**, **BSC**, **Polygon**, **Optimism**, and **Solana** simultaneously |
 | 🐋 | **Whale Tracking** | Detect large ERC-20 token and native-coin transfers above your USD threshold |
 | 💰 | **Price Alerts** | Set `above` / `below` price rules per token; triggers broadcast in real-time via WebSocket |
 | 📁 | **Portfolio Tracking** | Monitor native-coin balances for any wallet across chains; automatic snapshots every 5 min |
@@ -374,6 +374,7 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | BSC | 🟡 | 56 | ~3s | 6s |
 | Polygon | 🟣 | 137 | ~2s | 6s |
 | Optimism | 🔴 | 10 | ~2s | 6s |
+| Solana | 🟣 | 0 | ~0.4s | 4s |
 
 ---
 
@@ -395,6 +396,8 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `ALCHEMY_POLYGON` | Override Polygon RPC URL |
 | `ALCHEMY_OPT` | Override Optimism RPC URL |
 | `BSC_RPC` | BSC RPC URL (default: `https://bsc-dataseed.binance.org/`) |
+| `HELIUS_API_KEY` | Helius API key for Solana RPC |
+| `HELIUS_RPC_URL` | Override Solana RPC URL (default: derived from `HELIUS_API_KEY`) |
 
 ### Optional — Bot Tokens
 
@@ -526,7 +529,8 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Portfolio tracking with balance snapshots
 - [x] Visual web dashboard + dark Swagger UI / ReDoc
 - [x] Docker deployment
-- [ ] Solana chain support
+- [x] Solana chain support
+- [x] Comprehensive test suite (~120 tests)
 - [ ] Web dashboard with live charts
 - [ ] Machine learning for whale behavior prediction
 - [ ] PostgreSQL support for production
