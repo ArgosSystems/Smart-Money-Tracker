@@ -1,0 +1,76 @@
+# =============================================
+# Smart Money Tracker - Docker Compose
+# =============================================
+# Usage:
+#   docker-compose up -d              # Start in background
+#   docker-compose up -d --telegram   # Use Telegram bot instead of Discord
+#   docker-compose logs -f            # View logs
+#   docker-compose down               # Stop and remove containers
+
+version: "3.8"
+
+services:
+  # ── Smart Money Tracker API ────────────────────────────────────────────────
+  smart-money-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart-money-tracker
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Blockchain RPC
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+      - HELIUS_API_KEY=${HELIUS_API_KEY:-}
+      
+      # Bot tokens
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      
+      # Configuration
+      - WHALE_THRESHOLD_USD=${WHALE_THRESHOLD_USD:-10000}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-30}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      
+      # Database (using internal SQLite for simplicity)
+      - DATABASE_URL=sqlite+aiosqlite:///./data/crypto_bots.db
+    volumes:
+      # Persist database
+      - tracker-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["python", "start.py"]
+
+  # ── Optional: Telegram Bot Variant ──────────────────────────────────────────
+  # Uncomment to use Telegram instead of Discord
+  # smart-money-telegram:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: smart-money-telegram
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${API_PORT:-8000}:8000"
+  #   environment:
+  #     - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+  #     - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+  #     - WHALE_THRESHOLD_USD=${WHALE_THRESHOLD_USD:-10000}
+  #     - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-30}
+  #   volumes:
+  #     - tracker-data:/app/data
+  #   command: ["python", "start.py", "--telegram"]
+
+volumes:
+  tracker-data:
+    driver: local
+
+# ── Network Configuration ────────────────────────────────────────────────────
+networks:
+  default:
+    name: smart-money-network
