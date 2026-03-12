@@ -18,7 +18,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,8 @@ from config.settings import settings
 router = APIRouter(prefix="/api/v1", tags=["Wallets"])
 
 ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+# base58 alphabet excludes 0, O, I, l to avoid visual ambiguity
+_SOL_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -39,13 +41,6 @@ class TrackWalletRequest(BaseModel):
     chain: str = "ethereum"
     label: Optional[str] = None
 
-    @field_validator("address")
-    @classmethod
-    def validate_address(cls, v: str) -> str:
-        if not ETH_ADDRESS_RE.match(v):
-            raise ValueError("Invalid Ethereum address (must be 0x + 40 hex chars)")
-        return v.lower()
-
     @field_validator("chain")
     @classmethod
     def validate_chain(cls, v: str) -> str:
@@ -53,6 +48,22 @@ class TrackWalletRequest(BaseModel):
         if v not in CHAIN_NAMES:
             raise ValueError(f"Unknown chain '{v}'. Supported: {', '.join(CHAIN_NAMES)}")
         return v
+
+    @model_validator(mode="after")
+    def validate_address_for_chain(self) -> "TrackWalletRequest":
+        """Validate address format based on chain type. Solana addresses are case-sensitive."""
+        if self.chain == "solana":
+            if not _SOL_ADDRESS_RE.match(self.address):
+                raise ValueError(
+                    "Invalid Solana address (must be base58, 32–44 chars, "
+                    "no 0/O/I/l characters)"
+                )
+            # Solana addresses are case-sensitive — do NOT lowercase
+        else:
+            if not ETH_ADDRESS_RE.match(self.address):
+                raise ValueError("Invalid Ethereum address (must be 0x + 40 hex chars)")
+            self.address = self.address.lower()
+        return self
 
 
 class WalletResponse(BaseModel):
@@ -147,7 +158,9 @@ async def untrack_wallet(
     Soft-delete: mark the wallet as inactive without removing its alert history.
     Pass `?chain=base` to remove from a specific chain (default: ethereum).
     """
-    address = address.lower()
+    # Solana addresses are case-sensitive; EVM addresses are normalised to lowercase
+    if chain != "solana":
+        address = address.lower()
     wallet = await db.scalar(
         select(TrackedWallet).where(
             and_(TrackedWallet.address == address, TrackedWallet.chain == chain)
