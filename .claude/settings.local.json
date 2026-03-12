@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nimport ast, sys\n\nfiles = [\n    'config/chains.py',\n    'config/settings.py',\n    'api/services/whale_tracker.py',\n    'api/services/solana_scanner.py',\n    'api/routers/whales.py',\n    'bots/discord_bot/_shared.py',\n]\nfor f in files:\n    try:\n        with open\\(f\\) as fh:\n            ast.parse\\(fh.read\\(\\)\\)\n        print\\(f'  OK  {f}'\\)\n    except SyntaxError as e:\n        print\\(f'  ERR {f}: {e}'\\)\n        sys.exit\\(1\\)\nprint\\('All files parse cleanly.'\\)\n\")",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/ -v --tb=short 2>&1 | head -120)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && pip install pytest pytest-asyncio httpx aiosqlite 2>&1 | tail -10)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/ -v --tb=short 2>&1 | head -150)",
+      "Bash(python -c \"import web3; print\\(web3.__version__\\)\" 2>&1 && pip show web3 2>&1 | head -5)",
+      "Bash(python -c \"from web3 import AsyncWeb3; from web3 import AsyncHTTPProvider; print\\('ok'\\)\" 2>&1)",
+      "Bash(python -c \"from web3 import AsyncHTTPProvider; print\\(AsyncHTTPProvider\\)\" 2>&1 && python -c \"from web3.types import FilterParams; print\\('FilterParams ok'\\)\" 2>&1)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/ -v --tb=short 2>&1 | head -180)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/ --tb=short -q 2>&1)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/ --tb=short 2>&1 | grep -E \"FAILED|ERROR|PASSED|error\" | head -30)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && timeout 90 python -m pytest tests/ -x --tb=long 2>&1 | tail -60)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -m pytest tests/test_config.py tests/test_whale_tracker.py -x --tb=long 2>&1)",
+      "Bash(pip show:*)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nfrom pydantic_settings import BaseSettings, SettingsConfigDict\nclass S\\(BaseSettings\\):\n    alchemy_api_key: str = ''\n    model_config = SettingsConfigDict\\(env_file='.env', env_file_encoding='utf-8', extra='ignore'\\)\ns = S\\(alchemy_api_key='override'\\)\nprint\\(repr\\(s.alchemy_api_key\\)\\)\n\")",
+      "Bash(echo \"ALCHEMY_API_KEY=${ALCHEMY_API_KEY:-NOT_SET}\" && env | grep -i alchemy 2>&1)",
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nfrom config.settings import Settings\ns = Settings\\(alchemy_api_key='alchemykey'\\)\nprint\\(repr\\(s.alchemy_api_key\\)\\)\nprint\\(s.get_rpc_url\\('ethereum'\\)\\)\n\")"
+    ]
+  }
+}

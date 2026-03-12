@@ -32,7 +32,7 @@ from typing import Optional
 import httpx
 from sqlalchemy import select
 from web3 import AsyncWeb3
-from web3.providers.async_rpc import AsyncHTTPProvider
+from web3 import AsyncHTTPProvider
 
 from api.models import AsyncSessionLocal, PortfolioSnapshot, PortfolioWallet
 from config.chains import CHAINS
