@@ -5,6 +5,7 @@ Whale-tracking slash commands:
 
   /track_wallet   <address> [chain] [label]
   /untrack_wallet <address> [chain]
+  /wallets        [chain]              -- list tracked wallets
   /whale_alerts   [chain]   [count]
   /smart_money    <token>   [chain]
   /trending       [chain]
@@ -201,6 +202,49 @@ def setup_whale(bot: commands.Bot) -> None:
             lines=lines,
             color=COLOR_BUY if buy_vol >= sell_vol else COLOR_SELL,
             footer="Smart Money Tracker",
+        )
+
+    # /wallets
+    @bot.tree.command(name="wallets", description="List all tracked whale wallets")
+    @app_commands.describe(chain="Filter by chain (leave blank for all)")
+    @app_commands.choices(chain=CHAIN_CHOICES)
+    async def wallets(
+        interaction: discord.Interaction,
+        chain: Optional[app_commands.Choice[str]] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+        params: dict = {}
+        if chain:
+            params["chain"] = chain.value
+        data = await api_get("/wallets", params=params)
+        if not isinstance(data, list):
+            await cv2_error(interaction, "Could not fetch wallets", "API error or no data available.")
+            return
+        if not data:
+            await cv2_send(
+                interaction,
+                title="No wallets tracked",
+                lines=["Use `/track_wallet` to start monitoring whale wallets."],
+                color=COLOR_INFO,
+            )
+            return
+        title_chain = f" - {chain_badge(chain.value)}" if chain else " - All Chains"
+        lines: list[str] = []
+        for wallet in data:
+            cname = wallet.get("chain", "ethereum")
+            addr = wallet.get("address", "")
+            label = wallet.get("label")
+            status = "Active" if wallet.get("is_active") else "Paused"
+            label_str = f" ({label})" if label else ""
+            lines.append(
+                f"{CHAIN_EMOJI.get(cname, '')} `{short_addr(addr)}`{label_str} - {chain_badge(cname)} - {status}"
+            )
+        await cv2_send(
+            interaction,
+            title=f"Tracked Wallets{title_chain}",
+            lines=lines,
+            color=COLOR_INFO,
+            footer=f"Total: {len(data)} wallets - Smart Money Tracker",
         )
 
     # /trending

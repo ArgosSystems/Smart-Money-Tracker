@@ -320,6 +320,7 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 |---------|-------------|
 | `/track_wallet <address> [chain] [label]` | Start tracking a whale wallet |
 | `/untrack_wallet <address> [chain]` | Stop tracking a wallet |
+| `/wallets [chain]` | List all tracked whale wallets |
 | `/whale_alerts [chain] [count]` | Show recent whale transactions |
 | `/smart_money <token> [chain]` | Buy/sell sentiment for a specific token |
 | `/trending [chain]` | Top tokens whales are accumulating |
