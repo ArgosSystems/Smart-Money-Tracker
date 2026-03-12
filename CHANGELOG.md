@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Placeholder for future features
+#### Solana Chain Support 🟣
+- **SolanaScanner** — New scanner class for Solana blockchain using Helius RPC
+- **Base58 address validation** — Solana addresses are validated as base58 (44 chars, case-sensitive) and must NOT be lowercased
+- **_extract_parties()** — Heuristic to extract from/to addresses from Solana transaction account keys, skipping known programs (SPL Token, System, Compute Budget)
+- **Solana in Discord bot** — `/track_wallet` and `/whale_alerts` now accept `solana` as a chain option
+- **Solana chain metadata** — Native token SOL, 0.4s block time, 4s poll interval, Solscan explorer, CoinGecko `solana` platform
+
+### Changed
+- **config/chains.py** — Added `chain_type` field (`"evm"` or `"solana"`) for scanner dispatch; Solana has `chain_id=0`
+- **config/settings.py** — `HELIUS_API_KEY` and `HELIUS_RPC_URL` for Solana RPC configuration
+- **api/services/whale_tracker.py** — `MultiChainTracker._build_scanners()` dispatches `SolanaScanner` for `chain_type="solana"`
+- **api/routers/whales.py** — Address validation now distinguishes EVM (0x prefix, 42 chars) vs Solana (base58, 44 chars)
+
+#### Comprehensive Test Suite 🧪
+- **tests/conftest.py** — Shared pytest fixtures with in-memory SQLite database, `StaticPool` for cross-session visibility, mocked background services
+- **tests/test_api_alerts.py** — API tests for whale alerts endpoints (GET /api/v1/alerts, filtering, pagination)
+- **tests/test_api_portfolio.py** — CRUD tests for portfolio wallets, snapshots, and balance endpoints
+- **tests/test_api_price_alerts.py** — CRUD tests for price alert rules endpoints
+- **tests/test_api_wallets.py** — Integration tests for wallet tracking, address validation, and chain endpoints
+- **tests/test_broadcaster.py** — Unit tests for AlertBroadcaster pub/sub logic (subscribe, unsubscribe, publish, queue overflow)
+- **tests/test_config.py** — Pure-Python tests for chain registry and settings (RPC URL resolution, chain metadata)
+- **tests/test_price_alert_service.py** — Unit tests for PriceAlertChecker, fetch_token_price, fetch_prices_batch, cooldown logic
+- **tests/test_scanner.py** — Unit tests for _PriceCache TTL, BaseChainScanner.scan_range batching, _extract_parties Solana heuristic
+- **tests/test_whale_tracker.py** — Unit tests for EvmChainScanner.is_healthy, MultiChainTracker._build_scanners
 
 ---
 
