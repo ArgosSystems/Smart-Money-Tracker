@@ -8,14 +8,43 @@ Solana token safety scanner:
 
 from __future__ import annotations
 
+import logging
+
 import discord
+import httpx
 from discord import app_commands
 from discord.ext import commands
 
 from ._shared import (
+    API_BASE,
     COLOR_BUY, COLOR_ERROR, COLOR_SELL, COLOR_WARN,
-    api_get, cv2_error, cv2_send, fmt_usd, short_addr,
+    cv2_error, cv2_send, fmt_usd, short_addr,
 )
+
+logger = logging.getLogger(__name__)
+
+
+async def _fetch_safety(mint: str) -> tuple[dict | None, str]:
+    """
+    Call /token-safety/{mint} and return (data, error_detail).
+    Unlike api_get(), this preserves the error message from the API response
+    so the user sees the real reason a scan failed.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(f"{API_BASE}/token-safety/{mint}")
+            if resp.status_code == 200:
+                return resp.json(), ""
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text[:300]
+            return None, str(detail)
+    except httpx.ConnectError:
+        return None, "Cannot reach the API — is `python start.py` running?"
+    except Exception as exc:
+        logger.error("token-safety request error: %s", exc)
+        return None, str(exc)
 
 _LEVEL_EMOJI = {
     "danger": "🔴",
@@ -37,12 +66,12 @@ def setup_token_safety(bot: commands.Bot) -> None:
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        data = await api_get(f"/token-safety/{mint}")
+        data, err = await _fetch_safety(mint)
         if data is None:
             await cv2_error(
                 interaction,
                 "Scan failed",
-                "Could not fetch safety data. Make sure this is a valid Solana mint address.",
+                err or "Could not fetch safety data.",
             )
             return
 

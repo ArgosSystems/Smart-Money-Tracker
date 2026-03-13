@@ -74,19 +74,39 @@ async def token_safety(mint: str) -> TokenSafetyReport:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(_RUGCHECK_URL.format(mint=mint))
-            resp.raise_for_status()
+
+            if resp.status_code != 200:
+                # Capture the RugCheck error body for logging and user feedback
+                try:
+                    body = resp.json()
+                    rc_msg = body.get("message") or body.get("error") or str(body)
+                except Exception:
+                    rc_msg = resp.text[:300]
+
+                logger.warning(
+                    "RugCheck %s → HTTP %d: %s", mint, resp.status_code, rc_msg
+                )
+
+                if resp.status_code in (400, 404, 422):
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Token not found on RugCheck (HTTP {resp.status_code}). "
+                            f"Make sure the mint address is correct and the token exists on Solana. "
+                            f"RugCheck said: {rc_msg}"
+                        ),
+                    )
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"RugCheck API returned HTTP {resp.status_code}: {rc_msg}",
+                )
+
             data = resp.json()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="Token not found on RugCheck. Is this a valid Solana mint address?",
-            )
-        raise HTTPException(
-            status_code=502,
-            detail=f"RugCheck API returned {exc.response.status_code}.",
-        )
+
+    except HTTPException:
+        raise
     except httpx.RequestError as exc:
+        logger.error("RugCheck request error for %s: %s", mint, exc)
         raise HTTPException(
             status_code=502,
             detail=f"Could not reach RugCheck API: {exc}",
