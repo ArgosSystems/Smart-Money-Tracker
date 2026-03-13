@@ -40,11 +40,12 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 |---|---|---|
 | 🔗 | **Multi-Chain Support** | Monitor wallets on **Ethereum**, **Base**, **Arbitrum**, **BSC**, **Polygon**, **Optimism**, and **Solana** simultaneously |
 | 🐋 | **Whale Tracking** | Detect large ERC-20 token and native-coin transfers above your USD threshold |
+| 🛡️ | **Token Safety Scanner** | `/scan_token` — anti-rug check for Solana tokens via RugCheck.xyz; scores mint/freeze authority, LP lock, top holders, and risk factors |
 | 💰 | **Price Alerts** | Set `above` / `below` price rules per token; triggers broadcast in real-time via WebSocket |
 | 📁 | **Portfolio Tracking** | Monitor native-coin balances for any wallet across chains; automatic snapshots every 5 min |
 | ⚡ | **WebSocket Stream** | Real-time push of whale alerts via `/ws/alerts` (supports `wss://` for HTTPS deployments) |
 | 📊 | **Trending Tokens** | See which tokens whales are accumulating or dumping across all chains |
-| 🤖 | **Multi-Platform Bots** | Discord (18 slash commands, Components V2) and Telegram bots |
+| 🤖 | **Multi-Platform Bots** | Discord (20 slash commands, Components V2) and Telegram bots |
 | 🔌 | **REST API** | Full-featured API with Swagger UI and ReDoc documentation |
 | 💾 | **SQLite Database** | Zero-config persistent storage with automatic migrations |
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
@@ -215,6 +216,8 @@ Once the API is running, access the interactive documentation at:
 | `GET` | `/api/v1/alerts/token/{token}` | Alerts for a specific token |
 | `GET` | `/api/v1/tokens/trending` | Top tokens by whale activity |
 | `WS` | `/ws/alerts` | **WebSocket** real-time alert stream (`?chain=` filter) |
+| **Token Safety** | | |
+| `GET` | `/api/v1/token-safety/{mint}` | Solana token safety report — risk score, mint/freeze authority, LP lock, top holders |
 | **Price Alerts** | | |
 | `POST` | `/api/v1/price-alerts` | Create a price alert rule |
 | `GET` | `/api/v1/price-alerts` | List rules (`?active_only=true`) |
@@ -320,10 +323,16 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 |---------|-------------|
 | `/track_wallet <address> [chain] [label]` | Start tracking a whale wallet |
 | `/untrack_wallet <address> [chain]` | Stop tracking a wallet |
-| `/wallets [chain]` | List all tracked whale wallets |
-| `/whale_alerts [chain] [count]` | Show recent whale transactions |
+| `/wallets [chain]` | List all tracked whale wallets with labels and status |
+| `/whale_alerts [chain] [count]` | Show recent whale transactions (includes wallet label) |
 | `/smart_money <token> [chain]` | Buy/sell sentiment for a specific token |
 | `/trending [chain]` | Top tokens whales are accumulating |
+
+**🛡️ Token Safety**
+
+| Command | Description |
+|---------|-------------|
+| `/scan_token <mint>` | Solana token anti-rug check — mint/freeze authority, LP lock, top holders, risk score |
 
 **📁 Portfolio**
 
@@ -452,7 +461,8 @@ Smart-Money-Tracker/
 │   │   ├── alerts.py             # Whale alerts + WebSocket endpoint
 │   │   ├── whales.py             # Wallet management
 │   │   ├── price_alerts.py       # Price alert rules CRUD
-│   │   └── portfolio.py          # Portfolio wallet + snapshot endpoints
+│   │   ├── portfolio.py          # Portfolio wallet + snapshot endpoints
+│   │   └── token_safety.py       # Solana token safety (RugCheck.xyz proxy)
 │   └── services/
 │       ├── broadcaster.py        # WebSocket pub/sub singleton
 │       ├── whale_tracker.py      # Multi-chain scanning engine
@@ -464,7 +474,8 @@ Smart-Money-Tracker/
 │   │   ├── bot.py                # Discord bot setup + slash command sync
 │   │   ├── commands.py           # Entry point — calls all setup_*() functions
 │   │   ├── _shared.py            # Constants, HTTP helpers, CV2 builders
-│   │   ├── cmd_whale.py          # /track_wallet /untrack_wallet /whale_alerts /smart_money /trending
+│   │   ├── cmd_whale.py          # /track_wallet /untrack_wallet /wallets /whale_alerts /smart_money /trending
+│   │   ├── cmd_token_safety.py   # /scan_token
 │   │   ├── cmd_portfolio.py      # /portfolio_add /list /balance /remove /toggle
 │   │   ├── cmd_price_alerts.py   # /price_alert_add /price_alerts /delete /toggle
 │   │   ├── cmd_info.py           # /chains /status /invite
@@ -532,6 +543,7 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Docker deployment
 - [x] Solana chain support
 - [x] Comprehensive test suite (~120 tests)
+- [x] Solana token safety scanner (anti-rug via RugCheck.xyz)
 - [ ] Web dashboard with live charts
 - [ ] Machine learning for whale behavior prediction
 - [ ] PostgreSQL support for production

@@ -132,10 +132,14 @@ def setup_whale(bot: commands.Bot) -> None:
             amount  = f"{alert['amount_token']:.4f}"
             link    = tx_link(alert["tx_hash"], cname)
             c_emoji = CHAIN_EMOJI.get(cname, "")
+            label   = alert.get("wallet_label")
+            wallet_str = f"`{short_addr(alert['from_address'])}`"
+            if label:
+                wallet_str += f" **({label})**"
             lines.append(
                 f"{dir_emoji(alert['direction'])} **{alert['direction']} {symbol}** - {usd}  {c_emoji}\n"
                 f"Amount: {amount} {symbol}\n"
-                f"From: `{short_addr(alert['from_address'])}` -> `{short_addr(alert['to_address'])}`\n"
+                f"From: {wallet_str} -> `{short_addr(alert['to_address'])}`\n"
                 f"Tx: [{alert['tx_hash'][:14]}...]({link}) | Block {alert['block_number']}"
             )
         await cv2_send(
@@ -234,8 +238,9 @@ def setup_whale(bot: commands.Bot) -> None:
             cname = wallet.get("chain", "ethereum")
             addr = wallet.get("address", "")
             label = wallet.get("label")
-            status = "Active" if wallet.get("is_active") else "Paused"
-            label_str = f" ({label})" if label else ""
+            is_active = wallet.get("is_active", True)
+            status = "🟢 Active" if is_active else "⚪ Paused"
+            label_str = f" **{label}**" if label else ""
             lines.append(
                 f"{CHAIN_EMOJI.get(cname, '')} `{short_addr(addr)}`{label_str} - {chain_badge(cname)} - {status}"
             )

@@ -5,7 +5,39 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.5]
+## [1.7.0] - 2026-03-13
+
+### Added
+
+#### ◎ Solana Token Safety Scanner (Anti-Rug) 🛡️
+- **`api/routers/token_safety.py`** — new `GET /api/v1/token-safety/{mint}` endpoint; proxies **RugCheck.xyz** API and returns a structured `TokenSafetyReport` — no API key required
+  - **Mint authority** — flags whether the dev can still print unlimited tokens
+  - **Freeze authority** — flags whether the dev can freeze holder wallets
+  - **LP lock %** — aggregated across all liquidity pools for the token
+  - **Top holder concentration** — top-1 and top-5 wallet % of total supply
+  - **Risk score & level** — `SAFE` (< 500) / `CAUTION` (500–1499) / `DANGER` (≥ 1500)
+  - **Risk factors** — full list from RugCheck with `danger` / `warn` / `info` severity and descriptions
+  - **Rugged flag** — boolean from RugCheck if the token has already been identified as a rug
+- **`bots/discord_bot/cmd_token_safety.py`** — `/scan_token <mint>` Discord slash command
+  - Color-coded Components V2 verdict card: green (SAFE), orange (CAUTION), red (DANGER), dark-red (RUGGED)
+  - Displays all key risk signals in a single card with RugCheck.xyz attribution in the footer
+
+#### Wallet Label in Whale Alerts 🏷️
+- **`AlertResponse`** now includes a `wallet_label` field — populated by joining `WhaleAlert` with `TrackedWallet` using `joinedload` (no N+1 queries)
+- **`/whale_alerts`** Discord command displays the wallet label in bold next to the from-address when one is set
+
+#### `/wallets` Command 📋
+- New `/wallets [chain]` Discord slash command — lists all tracked whale wallets with their label, chain badge, and active/paused status
+
+### Changed
+- **`api/routers/alerts.py`** — `AlertResponse` gains `wallet_label: Optional[str]`; both alert queries use `joinedload(WhaleAlert.wallet)` for efficient label resolution
+- **`api/main.py`** — registers `token_safety.router`
+- **`bots/discord_bot/commands.py`** — calls `setup_token_safety(bot)`; docstring updated to include new command group
+- **`bots/discord_bot/cmd_help.py`** — adds `Token Safety` category with `scan_token` entry; adds missing `wallets` entry to catalogue; `_build_overview()` maps the new category icon
+
+---
+
+## [1.6.5] - 2026-03-13
 
 ### Added
 
@@ -326,6 +358,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 1.7.0 | 2026-03-13 | Solana token safety scanner (/scan_token), wallet labels in alerts, /wallets command |
+| 1.6.5 | 2026-03-13 | Solana chain support, comprehensive test suite (~120 tests) |
 | 1.6.0 | 2026-03-12 | **PUBLIC LAUNCH** discord.py 2.7.1, Components V2, 18 slash commands, /help, /invite, API_BASE_URL, DISCORD_OAUTH_LINK |
 | 1.5.0 | 2026-03-12 | Portfolio wallet tracking with balance snapshots |
 | 1.4.0 | 2026-03-12 | Price alert rules system with WebSocket broadcast |

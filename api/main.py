@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse
 from api.models import init_db, migrate_db
 from api.routers import alerts, whales
 from api.routers.alerts import ws_router
-from api.routers import price_alerts, portfolio
+from api.routers import price_alerts, portfolio, token_safety
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
 from api.services.portfolio_tracker import PortfolioTracker
@@ -98,6 +98,7 @@ app.include_router(alerts.router)
 app.include_router(ws_router)
 app.include_router(price_alerts.router)
 app.include_router(portfolio.router)
+app.include_router(token_safety.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>

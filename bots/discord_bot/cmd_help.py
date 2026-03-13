@@ -66,6 +66,16 @@ _COMMANDS: dict[str, dict] = {
         ],
         "tip": "Check the sentiment summary to quickly see if whales are accumulating or distributing.",
     },
+    "wallets": {
+        "category": "Whale Tracking",
+        "emoji": "🐋",
+        "short": "List all tracked whale wallets with labels and status.",
+        "usage": "/wallets [chain]",
+        "params": [
+            ("chain", "Optional", "Filter by chain. Leave blank for all chains"),
+        ],
+        "tip": "Wallets with a label show it in bold next to the address.",
+    },
     "trending": {
         "category": "Whale Tracking",
         "emoji": "🐋",
@@ -75,6 +85,17 @@ _COMMANDS: dict[str, dict] = {
             ("chain", "Optional", "Filter by chain. Leave blank for all"),
         ],
         "tip": "Combine with /smart_money to drill into a trending token.",
+    },
+    # Token Safety
+    "scan_token": {
+        "category": "Token Safety",
+        "emoji": "◎",
+        "short": "Solana token safety check — detect rug pulls, frozen wallets, and LP issues.",
+        "usage": "/scan_token <mint>",
+        "params": [
+            ("mint", "Required", "Solana token mint address (base58)"),
+        ],
+        "tip": "Scores below 500 are SAFE. 500–1499 = CAUTION. 1500+ = DANGER. Always check LP lock % and mint authority.",
     },
     # Portfolio
     "portfolio_add": {
@@ -230,9 +251,10 @@ def _build_overview() -> list[str]:
 
     cat_icons = {
         "Whale Tracking": "🐋",
-        "Portfolio":       "📁",
-        "Price Alerts":    "🔔",
-        "Info":            "ℹ️",
+        "Token Safety":   "◎",
+        "Portfolio":      "📁",
+        "Price Alerts":   "🔔",
+        "Info":           "ℹ️",
     }
     lines = []
     for cat, cmds in categories.items():

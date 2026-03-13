@@ -16,7 +16,8 @@
       "Bash(pip show:*)",
       "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nfrom pydantic_settings import BaseSettings, SettingsConfigDict\nclass S\\(BaseSettings\\):\n    alchemy_api_key: str = ''\n    model_config = SettingsConfigDict\\(env_file='.env', env_file_encoding='utf-8', extra='ignore'\\)\ns = S\\(alchemy_api_key='override'\\)\nprint\\(repr\\(s.alchemy_api_key\\)\\)\n\")",
       "Bash(echo \"ALCHEMY_API_KEY=${ALCHEMY_API_KEY:-NOT_SET}\" && env | grep -i alchemy 2>&1)",
-      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nfrom config.settings import Settings\ns = Settings\\(alchemy_api_key='alchemykey'\\)\nprint\\(repr\\(s.alchemy_api_key\\)\\)\nprint\\(s.get_rpc_url\\('ethereum'\\)\\)\n\")"
+      "Bash(cd \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5\" && python -c \"\nfrom config.settings import Settings\ns = Settings\\(alchemy_api_key='alchemykey'\\)\nprint\\(repr\\(s.alchemy_api_key\\)\\)\nprint\\(s.get_rpc_url\\('ethereum'\\)\\)\n\")",
+      "Bash(grep -c '^\\\\s\\\\+\"[a-z_]*\": {$' \"/Users/hamza.ouanzi/Desktop/MY WORK/Dev Empire/CryptoDevEmpire/01_Active_Projects/Discord_Bots/Smart-Money-Tracker-patch-v5/bots/discord_bot/cmd_help.py\")"
     ]
   }
 }

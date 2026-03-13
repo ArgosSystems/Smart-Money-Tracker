@@ -19,8 +19,9 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_serializer
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from api.models import WhaleAlert, get_db
+from api.models import TrackedWallet, WhaleAlert, get_db
 from api.services.broadcaster import alert_broadcaster
 
 router = APIRouter(prefix="/api/v1", tags=["Alerts"])
@@ -42,6 +43,7 @@ class AlertResponse(BaseModel):
     direction: str
     block_number: int
     detected_at: datetime.datetime
+    wallet_label: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -51,8 +53,10 @@ class AlertResponse(BaseModel):
 
 
 def _to_response(alert: WhaleAlert) -> AlertResponse:
-    """Convert ORM row → response model without touching __dict__ directly."""
-    return AlertResponse.model_validate(alert)
+    """Convert ORM row → response model, including the wallet label if available."""
+    resp = AlertResponse.model_validate(alert)
+    resp.wallet_label = alert.wallet.label if alert.wallet else None
+    return resp
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -70,7 +74,13 @@ async def get_alerts(
     db: AsyncSession = Depends(get_db),
 ) -> list[AlertResponse]:
     """Return recent whale alerts, newest first."""
-    query = select(WhaleAlert).order_by(desc(WhaleAlert.detected_at)).offset(offset).limit(limit)
+    query = (
+        select(WhaleAlert)
+        .options(joinedload(WhaleAlert.wallet))
+        .order_by(desc(WhaleAlert.detected_at))
+        .offset(offset)
+        .limit(limit)
+    )
 
     if chain:
         query = query.where(WhaleAlert.chain == chain.lower())
@@ -96,7 +106,12 @@ async def get_token_alerts(
     Return alerts for a specific token.
     `token` can be a symbol (e.g. 'PEPE') or a full contract address (0x…).
     """
-    query = select(WhaleAlert).order_by(desc(WhaleAlert.detected_at)).limit(limit)
+    query = (
+        select(WhaleAlert)
+        .options(joinedload(WhaleAlert.wallet))
+        .order_by(desc(WhaleAlert.detected_at))
+        .limit(limit)
+    )
 
     if token.startswith("0x") and len(token) == 42:
         query = query.where(WhaleAlert.token_address == token.lower())
