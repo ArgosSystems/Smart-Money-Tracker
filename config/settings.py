@@ -69,7 +69,7 @@ class Settings(BaseSettings):
                                 # e.g. https://mainnet.helius-rpc.com/?api-key=<key>
 
     # ── Database ─────────────────────────────────────────────────────────────
-    database_url: str = "sqlite+aiosqlite:///./crypto_bots.db"
+    database_url: str = "postgresql+asyncpg://smart_money:smart_money@localhost:5432/smart_money"
 
     # ── API server binding ────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
