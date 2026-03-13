@@ -239,98 +239,114 @@ class PriceAlertRule(Base):
         )
 
 
+class SeenTransaction(Base):
+    """
+    Lightweight deduplication table — stores tx_hash+chain of every transaction
+    already processed, preventing the same whale alert from being inserted twice
+    if a scanner restarts mid-block.
+    """
+
+    __tablename__ = "seen_transactions"
+
+    tx_hash: Mapped[str] = mapped_column(String(66), primary_key=True)
+    chain:   Mapped[str] = mapped_column(String(20), primary_key=True)
+    seen_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<SeenTransaction {self.chain}:{self.tx_hash[:12]}…>"
+
+
 # ── DB lifecycle helpers ──────────────────────────────────────────────────────
 
 async def init_db() -> None:
-    """Create all tables (safe to call on a fresh DB or after migration)."""
+    """
+    Enable TimescaleDB extension, create all tables, and set up hypertables.
+    Safe to call on a fresh DB or after a restart — all operations are idempotent.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    async with engine.begin() as conn:
+        for table, time_col in [
+            ("whale_alerts",        "detected_at"),
+            ("portfolio_snapshots", "taken_at"),
+        ]:
+            await conn.execute(text(
+                f"SELECT create_hypertable('{table}', '{time_col}', "
+                f"if_not_exists => TRUE, migrate_data => TRUE)"
+            ))
+        logger.info("TimescaleDB hypertables ready.")
 
 
 async def migrate_db() -> None:
     """
-    Idempotent schema migration for databases created before multi-chain support.
-
-    What it does
-    ------------
-    1. tracked_wallets: recreates the table adding `chain` column and
-       changing the unique constraint from (address) to (address, chain).
-    2. whale_alerts:    adds `chain` column via ALTER TABLE.
-    3. token_activity:  recreates the table adding `chain` column and
-       changing the unique constraint from (token_address) to (token_address, chain).
-
-    All existing rows are preserved with chain = 'ethereum'.
+    Idempotent schema migration — upgrades pre-multi-chain PostgreSQL databases.
+    Uses information_schema to detect missing columns; safe to run on every startup.
     """
     async with engine.begin() as conn:
 
-        # ── 1. tracked_wallets ────────────────────────────────────────────────
-        result = await conn.execute(text("PRAGMA table_info(tracked_wallets)"))
-        tw_cols = {row[1] for row in result.fetchall()}
-
-        if tw_cols and "chain" not in tw_cols:
-            logger.info("Migration: rebuilding tracked_wallets with chain column…")
+        # 1. tracked_wallets — add chain column
+        result = await conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='tracked_wallets' AND column_name='chain'"
+        ))
+        if result.fetchone() is None:
+            logger.info("Migration: adding chain to tracked_wallets…")
+            await conn.execute(text(
+                "ALTER TABLE tracked_wallets "
+                "ADD COLUMN chain VARCHAR(20) NOT NULL DEFAULT 'ethereum'"
+            ))
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS _tw_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    address VARCHAR(42) NOT NULL,
-                    chain   VARCHAR(20) NOT NULL DEFAULT 'ethereum',
-                    label   VARCHAR(100),
-                    is_active BOOLEAN DEFAULT 1,
-                    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_checked_block INTEGER,
-                    UNIQUE(address, chain)
-                )
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'uq_wallet_address_chain'
+                    ) THEN
+                        ALTER TABLE tracked_wallets
+                        ADD CONSTRAINT uq_wallet_address_chain UNIQUE (address, chain);
+                    END IF;
+                END $$;
             """))
-            await conn.execute(text("""
-                INSERT OR IGNORE INTO _tw_new
-                    (id, address, chain, label, is_active, added_at, last_checked_block)
-                SELECT id, address, 'ethereum', label, is_active, added_at, last_checked_block
-                FROM tracked_wallets
-            """))
-            await conn.execute(text("DROP TABLE tracked_wallets"))
-            await conn.execute(text("ALTER TABLE _tw_new RENAME TO tracked_wallets"))
             logger.info("Migration: tracked_wallets done.")
 
-        # ── 2. whale_alerts ───────────────────────────────────────────────────
-        result = await conn.execute(text("PRAGMA table_info(whale_alerts)"))
-        wa_cols = {row[1] for row in result.fetchall()}
-
-        if wa_cols and "chain" not in wa_cols:
-            logger.info("Migration: adding chain column to whale_alerts…")
+        # 2. whale_alerts — add chain column
+        result = await conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='whale_alerts' AND column_name='chain'"
+        ))
+        if result.fetchone() is None:
+            logger.info("Migration: adding chain to whale_alerts…")
             await conn.execute(text(
-                "ALTER TABLE whale_alerts ADD COLUMN chain VARCHAR(20) NOT NULL DEFAULT 'ethereum'"
+                "ALTER TABLE whale_alerts "
+                "ADD COLUMN chain VARCHAR(20) NOT NULL DEFAULT 'ethereum'"
             ))
             logger.info("Migration: whale_alerts done.")
 
-        # ── 3. token_activity ─────────────────────────────────────────────────
-        result = await conn.execute(text("PRAGMA table_info(token_activity)"))
-        ta_cols = {row[1] for row in result.fetchall()}
-
-        if ta_cols and "chain" not in ta_cols:
-            logger.info("Migration: rebuilding token_activity with chain column…")
+        # 3. token_activity — add chain column
+        result = await conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='token_activity' AND column_name='chain'"
+        ))
+        if result.fetchone() is None:
+            logger.info("Migration: adding chain to token_activity…")
+            await conn.execute(text(
+                "ALTER TABLE token_activity "
+                "ADD COLUMN chain VARCHAR(20) NOT NULL DEFAULT 'ethereum'"
+            ))
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS _ta_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chain VARCHAR(20) NOT NULL DEFAULT 'ethereum',
-                    token_address VARCHAR(42) NOT NULL,
-                    token_symbol  VARCHAR(20) NOT NULL,
-                    buy_count  INTEGER DEFAULT 0,
-                    sell_count INTEGER DEFAULT 0,
-                    total_volume_usd FLOAT DEFAULT 0.0,
-                    last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(token_address, chain)
-                )
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'uq_token_chain'
+                    ) THEN
+                        ALTER TABLE token_activity
+                        ADD CONSTRAINT uq_token_chain UNIQUE (token_address, chain);
+                    END IF;
+                END $$;
             """))
-            await conn.execute(text("""
-                INSERT OR IGNORE INTO _ta_new
-                    (id, chain, token_address, token_symbol, buy_count, sell_count,
-                     total_volume_usd, last_activity)
-                SELECT id, 'ethereum', token_address, token_symbol, buy_count, sell_count,
-                       total_volume_usd, last_activity
-                FROM token_activity
-            """))
-            await conn.execute(text("DROP TABLE token_activity"))
-            await conn.execute(text("ALTER TABLE _ta_new RENAME TO token_activity"))
             logger.info("Migration: token_activity done.")
 
 

@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v1.7.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v1.8.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -47,7 +47,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 📊 | **Trending Tokens** | See which tokens whales are accumulating or dumping across all chains |
 | 🤖 | **Multi-Platform Bots** | Discord (20 slash commands, Components V2) and Telegram bots |
 | 🔌 | **REST API** | Full-featured API with Swagger UI and ReDoc documentation |
-| 💾 | **SQLite Database** | Zero-config persistent storage with automatic migrations |
+| 💾 | **PostgreSQL + TimescaleDB** | Production-grade time-series database with automatic hypertables for whale alerts and portfolio snapshots |
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
 | 🌐 | **External Deployment** | Set `API_BASE_URL` once to point bots at any VPS, Pterodactyl node, or domain |
 | 🔐 | **Discord OAuth2** | `/invite` command generates a scoped bot-invite link automatically |
@@ -75,15 +75,16 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 └─────────┬──────────────────────┬──────────────────────┬─────────────────────┘
           │                      │                       │
 ┌─────────▼────────┐  ┌──────────▼──────────┐  ┌────────▼───────────┐
-│ MultiChainTracker│  │  SQLite  (async)     │  │  CoinGecko API     │
+│ MultiChainTracker│  │ PostgreSQL+Timescale │  │  CoinGecko API     │
 │ • ChainScanner   │  │  TrackedWallet       │  │  (60s TTL cache)   │
-│   per chain      │  │  WhaleAlert          │  └────────────────────┘
+│   per chain      │  │  WhaleAlert ⏱        │  └────────────────────┘
 │ • Concurrent     │  │  TokenActivity       │
 │   polling        │  │  PriceAlertRule      │
 └─────────┬────────┘  │  PortfolioWallet     │
-          │           │  PortfolioSnapshot   │
-  ⬛ ETH  🔵 Base     └─────────────────────-┘
-  🔶 ARB  🟡 BSC  🟣 MATIC  🔴 OP
+          │           │  PortfolioSnapshot ⏱ │
+  ⬛ ETH  🔵 Base     │  SeenTransaction      │
+  🔶 ARB  🟡 BSC      └─────────────────────-┘
+  🟣 MATIC  🔴 OP  🟣 SOL
 ```
 
 ---
@@ -93,6 +94,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 ### Prerequisites
 
 - Python 3.11 or higher
+- **PostgreSQL 16 + TimescaleDB** — or [Docker](https://docs.docker.com/get-docker/) (easiest: `docker compose up -d db` starts it automatically)
 - An [Alchemy](https://www.alchemy.com/) account (free tier works)
 - A Discord bot token (optional) — [Create one here](https://discord.com/developers/applications)
 - A Telegram bot token (optional) — [Talk to BotFather](https://t.me/botfather)
@@ -134,6 +136,9 @@ Backend scaling • 5 chains • WebSocket • Dashboard
    # Choose one or both bots
    DISCORD_TOKEN=your_discord_bot_token_here
    TELEGRAM_TOKEN=your_telegram_bot_token_here
+
+   # PostgreSQL + TimescaleDB connection string
+   DATABASE_URL=postgresql+asyncpg://smart_money:smart_money@localhost:5432/smart_money
    ```
 
    **Deploying on a VPS / Pterodactyl / behind a domain?** Add:
@@ -176,9 +181,11 @@ Backend scaling • 5 chains • WebSocket • Dashboard
    **Docker (any platform — no Python install needed):**
    ```bash
    cp .env.example .env   # fill in your keys
-   docker compose up -d
+   docker compose up -d   # starts TimescaleDB + API automatically
    docker compose logs -f
    ```
+
+   > **Note:** Docker automatically starts a TimescaleDB container. For a local (non-Docker) setup, start PostgreSQL first — see the [Database Setup](#database-setup) section.
 
 6. **Open the dashboard** → [http://localhost:8000](http://localhost:8000)
 
@@ -544,9 +551,9 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Solana chain support
 - [x] Comprehensive test suite (~120 tests)
 - [x] Solana token safety scanner (anti-rug via RugCheck.xyz)
+- [x] PostgreSQL + TimescaleDB for production time-series storage
 - [ ] Web dashboard with live charts
 - [ ] Machine learning for whale behavior prediction
-- [ ] PostgreSQL support for production
 - [ ] Kubernetes Helm charts
 
 ---

@@ -6,7 +6,8 @@ pydantic-settings==2.1.0
 
 # Database
 sqlalchemy==2.0.25
-aiosqlite==0.19.0
+aiosqlite==0.19.0        # kept for tests (conftest uses sqlite+aiosqlite:///:memory:)
+asyncpg>=0.29.0          # PostgreSQL + TimescaleDB async driver
 
 # Blockchain
 web3==6.15.1

@@ -10,6 +10,25 @@
 version: "3.8"
 
 services:
+  # ── PostgreSQL + TimescaleDB ───────────────────────────────────────────────
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: smart-money-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smart_money
+      POSTGRES_PASSWORD: smart_money
+      POSTGRES_DB: smart_money
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart_money"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Smart Money Tracker API ────────────────────────────────────────────────
   smart-money-tracker:
     build:
@@ -17,34 +36,33 @@ services:
       dockerfile: Dockerfile
     container_name: smart-money-tracker
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
       # Blockchain RPC
       - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
       - HELIUS_API_KEY=${HELIUS_API_KEY:-}
-      
+
       # Bot tokens
       - DISCORD_TOKEN=${DISCORD_TOKEN:-}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
-      
+
       # Configuration
       - WHALE_THRESHOLD_USD=${WHALE_THRESHOLD_USD:-10000}
-      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-30}
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      
-      # Database (using internal SQLite for simplicity)
-      - DATABASE_URL=sqlite+aiosqlite:///./data/crypto_bots.db
-    volumes:
-      # Persist database
-      - tracker-data:/app/data
+
+      # Database — PostgreSQL + TimescaleDB
+      - DATABASE_URL=postgresql+asyncpg://smart_money:smart_money@db:5432/smart_money
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     command: ["python", "start.py"]
 
   # ── Optional: Telegram Bot Variant ──────────────────────────────────────────
@@ -67,7 +85,7 @@ services:
   #   command: ["python", "start.py", "--telegram"]
 
 volumes:
-  tracker-data:
+  db-data:
     driver: local
 
 # ── Network Configuration ────────────────────────────────────────────────────

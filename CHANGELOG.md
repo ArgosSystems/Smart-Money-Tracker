@@ -5,6 +5,34 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-03-13
+
+### Added
+
+#### PostgreSQL + TimescaleDB Support 🐘⏱️
+- **`asyncpg`** driver added to `requirements.txt` — high-performance async PostgreSQL client
+- **`aiosqlite`** kept for the test suite (conftest uses `sqlite+aiosqlite:///:memory:`)
+- **`SeenTransaction` model** — lightweight deduplication table `(tx_hash, chain)` primary key; prevents the same whale alert from being inserted twice when a scanner restarts mid-block
+- **TimescaleDB hypertables** — `whale_alerts` and `portfolio_snapshots` are converted to hypertables on first startup via `create_hypertable(..., if_not_exists=TRUE, migrate_data=TRUE)`
+- **`docker-compose.yml`** — new `db` service using `timescale/timescaledb:latest-pg16`; app service gains `depends_on: db: condition: service_healthy`
+
+### Changed
+- **`config/settings.py`** — default `DATABASE_URL` changed from `sqlite+aiosqlite:///./crypto_bots.db` to `postgresql+asyncpg://smart_money:smart_money@localhost:5432/smart_money`
+- **`api/models.py` — `init_db()`** — now runs `CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE` before `create_all`, then calls `create_hypertable` for time-series tables
+- **`api/models.py` — `migrate_db()`** — rewrote using `information_schema.columns` (PostgreSQL) instead of `PRAGMA table_info` (SQLite); uses `DO $$ ... END $$` blocks to add unique constraints idempotently
+- **`.env.example`** — `DATABASE_URL` now defaults to PostgreSQL; SQLite example kept as a comment
+- **`docker-compose.yml`** — removed SQLite volume `tracker-data`; added `db-data` volume for PostgreSQL data persistence
+
+### Migration Guide (SQLite → PostgreSQL)
+> Zero data loss — all existing rows migrate cleanly.
+1. Start a TimescaleDB instance (Docker: `docker compose up -d db`)
+2. Set `DATABASE_URL=postgresql+asyncpg://smart_money:smart_money@localhost:5432/smart_money` in `.env`
+3. Export SQLite data: `sqlite3 crypto_bots.db .dump > dump.sql`
+4. Import to PostgreSQL after adjusting SQLite-specific syntax
+5. Start the app — `migrate_db()` and `init_db()` run automatically on startup
+
+---
+
 ## [1.7.0] - 2026-03-13
 
 ### Added
