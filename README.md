@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v1.8.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v2.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -45,7 +45,8 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 📁 | **Portfolio Tracking** | Monitor native-coin balances for any wallet across chains; automatic snapshots every 5 min |
 | ⚡ | **WebSocket Stream** | Real-time push of whale alerts via `/ws/alerts` (supports `wss://` for HTTPS deployments) |
 | 📊 | **Trending Tokens** | See which tokens whales are accumulating or dumping across all chains |
-| 🤖 | **Multi-Platform Bots** | Discord (20 slash commands, Components V2) and Telegram bots |
+| 🐦 | **Twitter/X Broadcasting** | Auto-post whale alerts and price triggers to Twitter/X with priority scoring, rate limiting, circuit breaker resilience, and dry-run mode |
+| 🤖 | **Multi-Platform Bots** | Discord (22 slash commands, Components V2) and Telegram bots |
 | 🔌 | **REST API** | Full-featured API with Swagger UI and ReDoc documentation |
 | 💾 | **PostgreSQL + TimescaleDB** | Production-grade time-series database with automatic hypertables for whale alerts and portfolio snapshots |
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
@@ -57,34 +58,38 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              User Interface                                 │
-├──────────────────────────────┬───────────────────────┬──────────────────────┤
-│         Discord Bot          │    Web Dashboard       │    Telegram Bot      │
-│      (discord.py 2.7.1)      │    configurable URL    │   (ptb 21.0)         │
-│  • 18 slash commands (CV2)   │  • Dark-theme UI       │  • Multi-chain       │
-│  • OAuth2 /invite command    │  • Swagger + ReDoc     │  • Command parity    │
-└──────────────────┬───────────┴───────────────────────┴──────────┬───────────┘
-                   │              HTTP REST API                    │
-                   └──────────────────────┬────────────────────────┘
-                                          │
-┌─────────────────────────────────────────▼───────────────────────────────────┐
-│                         FastAPI Backend  (Port 8000)                        │
-│   Wallet Management · Alert History · Price Alerts · Portfolio Tracking    │
-│   WebSocket Broadcaster · Token Activity / Trending                        │
-└─────────┬──────────────────────┬──────────────────────┬─────────────────────┘
-          │                      │                       │
-┌─────────▼────────┐  ┌──────────▼──────────┐  ┌────────▼───────────┐
-│ MultiChainTracker│  │ PostgreSQL+Timescale │  │  CoinGecko API     │
-│ • ChainScanner   │  │  TrackedWallet       │  │  (60s TTL cache)   │
-│   per chain      │  │  WhaleAlert ⏱        │  └────────────────────┘
-│ • Concurrent     │  │  TokenActivity       │
-│   polling        │  │  PriceAlertRule      │
-└─────────┬────────┘  │  PortfolioWallet     │
-          │           │  PortfolioSnapshot ⏱ │
-  ⬛ ETH  🔵 Base     │  SeenTransaction      │
-  🔶 ARB  🟡 BSC      └─────────────────────-┘
-  🟣 MATIC  🔴 OP  🟣 SOL
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                   User Interface                                      │
+├──────────────────┬──────────────────┬──────────────────┬──────────────┬───────────────┤
+│   Discord Bot    │  Web Dashboard   │  Telegram Bot    │ Twitter / X  │  WebSocket    │
+│ (discord.py 2.7) │ configurable URL │   (ptb 21.0)     │ Auto-posting │  Subscribers  │
+│ • 22 commands    │ • Dark-theme UI  │ • Multi-chain    │ • Dry-run    │ • Real-time   │
+│ • Components V2  │ • Swagger/ReDoc  │ • Command parity │ • Scoring    │ • Per-chain   │
+└────────┬─────────┴────────┬─────────┴────────┬─────────┴──────┬───────┴───────┬───────┘
+         │        HTTP REST API                 │                │               │
+         └──────────────────┬───────────────────┘                │               │
+                            │                                    │               │
+┌───────────────────────────▼────────────────────────────────────────────────────────────┐
+│                           FastAPI Backend  (Port 8000)                                  │
+│  Wallet Management · Alert History · Price Alerts · Portfolio Tracking                  │
+│                                                                                        │
+│  ┌── EventDispatcher (typed AlertDTO bus) ────────────────────────────────────────┐     │
+│  │  WhaleAlertEvent / PriceTriggerEvent / PortfolioAlertEvent                    │     │
+│  │       ├── WebSocketBroadcasterPlugin → WS subscribers                         │     │
+│  │       └── TwitterBroadcaster → scoring → rate limit → circuit breaker → X API │     │
+│  └───────────────────────────────────────────────────────────────────────────────-┘     │
+└──────────┬──────────────────────┬──────────────────────┬───────────────────────────────-┘
+           │                      │                       │
+┌──────────▼─────────┐  ┌────────▼──────────┐  ┌─────────▼──────────┐
+│ MultiChainTracker  │  │ PostgreSQL+TS DB  │  │  CoinGecko API     │
+│ • EvmChainScanner  │  │  WhaleAlert ⏱     │  │  (60s TTL cache)   │
+│ • SolanaScanner    │  │  PriceAlertRule   │  └────────────────────┘
+│ • Concurrent       │  │  PortfolioSnap ⏱  │
+│   polling          │  │  TwitterPost ⏱    │
+└──────────┬─────────┘  │  BroadcasterMetric│
+           │            └───────────────────┘
+  ⬛ ETH  🔵 Base  🔶 ARB
+  🟡 BSC  🟣 MATIC  🔴 OP  ◎ SOL
 ```
 
 ---
@@ -239,6 +244,10 @@ Once the API is running, access the interactive documentation at:
 | `PATCH` | `/api/v1/portfolio/wallets/{id}/toggle` | Pause / resume snapshots |
 | `GET` | `/api/v1/portfolio/wallets/{id}/balance` | Live on-chain balance (saves snapshot) |
 | `GET` | `/api/v1/portfolio/wallets/{id}/snapshots` | Balance history (newest-first) |
+| **Twitter** | | |
+| `GET` | `/api/v1/twitter/status` | Broadcaster status (queue, budget, circuit breaker) |
+| `GET` | `/api/v1/twitter/recent` | Last N posted/dry-run tweets |
+| `GET` | `/api/v1/twitter/preview` | Preview tweet rendering for a specific alert |
 
 ---
 
@@ -360,6 +369,13 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/price_alert_delete <id>` | Delete an alert rule |
 | `/price_alert_toggle <id>` | Enable / disable a rule |
 
+**🐦 Twitter (Admin)**
+
+| Command | Description |
+|---------|-------------|
+| `/twitter_status` | Show broadcaster status: queue depth, rate limit budget, circuit breaker state |
+| `/twitter_test <alert_id> [type]` | Preview what a tweet would look like for a specific alert |
+
 **ℹ️ Info**
 
 | Command | Description |
@@ -438,6 +454,25 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `DISCORD_OAUTH_SCOPES` | `bot applications.commands` | Space-separated OAuth2 scopes added to the invite URL |
 | `DISCORD_OAUTH_PERMISSIONS` | `2147568640` | Integer permission bits on the invite URL |
 
+### Optional — Twitter / X Broadcasting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TWITTER_ENABLED` | `false` | Enable Twitter auto-posting |
+| `TWITTER_DRY_RUN` | `true` | Log tweets without posting (preview mode) |
+| `TWITTER_API_KEY` | `""` | Twitter API v2 consumer key |
+| `TWITTER_API_SECRET` | `""` | Twitter API v2 consumer secret |
+| `TWITTER_ACCESS_TOKEN` | `""` | OAuth 1.0a access token |
+| `TWITTER_ACCESS_TOKEN_SECRET` | `""` | OAuth 1.0a access token secret |
+| `TWITTER_BEARER_TOKEN` | `""` | Bearer token (for reading metrics) |
+| `TWITTER_DAILY_BUDGET` | `50` | Max tweets per rolling 24h window |
+| `TWITTER_HOURLY_CAP` | `17` | Max tweets per rolling 1h window |
+| `TWITTER_ENABLE_WHALE_TWEETS` | `true` | Auto-post whale alerts |
+| `TWITTER_ENABLE_PRICE_TWEETS` | `true` | Auto-post price triggers |
+| `TWITTER_ENABLE_PORTFOLIO_TWEETS` | `false` | Auto-post portfolio changes (off for privacy) |
+| `TWITTER_COOLDOWN_WALLET_HOURS` | `4.0` | Hours between tweets about same wallet |
+| `TWITTER_COOLDOWN_TOKEN_HOURS` | `2.0` | Hours between tweets about same token |
+
 ### Optional — General Settings
 
 | Variable | Default | Description |
@@ -464,17 +499,29 @@ Smart-Money-Tracker/
 ├── api/
 │   ├── main.py                   # App entry, lifespan, background tasks, dashboard
 │   ├── models.py                 # SQLAlchemy ORM models + DB setup
-│   └── routers/
+│   ├── events/                   # Typed event system
+│   │   ├── protocol.py           # BroadcasterProtocol + AlertDTO base
+│   │   ├── types.py              # WhaleAlertEvent, PriceTriggerEvent, PortfolioAlertEvent
+│   │   └── dispatcher.py         # EventDispatcher + WebSocketBroadcasterPlugin
+│   ├── routers/
 │   │   ├── alerts.py             # Whale alerts + WebSocket endpoint
 │   │   ├── whales.py             # Wallet management
 │   │   ├── price_alerts.py       # Price alert rules CRUD
 │   │   ├── portfolio.py          # Portfolio wallet + snapshot endpoints
-│   │   └── token_safety.py       # Solana token safety (RugCheck.xyz proxy)
+│   │   ├── token_safety.py       # Solana token safety (RugCheck.xyz proxy)
+│   │   └── twitter.py            # Twitter status, recent tweets, preview endpoints
 │   └── services/
 │       ├── broadcaster.py        # WebSocket pub/sub singleton
 │       ├── whale_tracker.py      # Multi-chain scanning engine
 │       ├── price_alerts.py       # Price alert checker (60s loop)
-│       └── portfolio_tracker.py  # Portfolio snapshot service (5 min loop)
+│       ├── portfolio_tracker.py  # Portfolio snapshot service (5 min loop)
+│       └── twitter/              # Twitter/X broadcasting module
+│           ├── broadcaster.py    # TwitterBroadcaster (BroadcasterProtocol plugin)
+│           ├── scoring.py        # Priority scoring engine (0-100 pts)
+│           ├── rate_limiter.py   # Token bucket + entity cooldown tracker
+│           ├── circuit_breaker.py# Circuit breaker (CLOSED/OPEN/HALF_OPEN)
+│           ├── templates.py      # Tweet renderer + thread composer
+│           └── client.py         # Twitter API v2 client (tweepy async)
 │
 ├── bots/
 │   ├── discord_bot/
@@ -486,7 +533,8 @@ Smart-Money-Tracker/
 │   │   ├── cmd_portfolio.py      # /portfolio_add /list /balance /remove /toggle
 │   │   ├── cmd_price_alerts.py   # /price_alert_add /price_alerts /delete /toggle
 │   │   ├── cmd_info.py           # /chains /status /invite
-│   │   └── cmd_help.py           # /help [command]
+│   │   ├── cmd_help.py           # /help [command]
+│   │   └── cmd_twitter.py        # /twitter_status /twitter_test (admin only)
 │   └── telegram_bot/
 │       ├── bot.py
 │       └── handlers.py
@@ -552,7 +600,9 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Comprehensive test suite (~120 tests)
 - [x] Solana token safety scanner (anti-rug via RugCheck.xyz)
 - [x] PostgreSQL + TimescaleDB for production time-series storage
+- [x] Twitter/X auto-broadcasting with typed event dispatcher
 - [ ] Web dashboard with live charts
+- [ ] Smart money labeling (exchange/VC/MEV entity resolution)
 - [ ] Machine learning for whale behavior prediction
 - [ ] Kubernetes Helm charts
 
@@ -566,8 +616,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- [FastAPI](https://fastapi.tiangolo.com/) · [discord.py](https://discordpy.readthedocs.io/) · [python-telegram-bot](https://python-telegram-bot.org/) · [web3.py](https://web3py.readthedocs.io/) · [Alchemy](https://www.alchemy.com/) · [CoinGecko](https://www.coingecko.com/)
-- **Claude Sonnet** (Anthropic) — Architecture design and implementation assistance
+- [FastAPI](https://fastapi.tiangolo.com/) · [discord.py](https://discordpy.readthedocs.io/) · [python-telegram-bot](https://python-telegram-bot.org/) · [web3.py](https://web3py.readthedocs.io/) · [tweepy](https://www.tweepy.org/) · [Alchemy](https://www.alchemy.com/) · [CoinGecko](https://www.coingecko.com/)
+- **Claude Opus** (Anthropic) — Architecture design and implementation assistance
 
 ---
 

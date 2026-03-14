@@ -34,6 +34,54 @@ command which generates a properly-scoped OAuth2 invite link.
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class TwitterConfig(BaseSettings):
+    """Twitter/X broadcasting configuration.  All env vars prefixed TWITTER_."""
+
+    enabled: bool = False
+    dry_run: bool = True
+
+    # OAuth credentials (Twitter API v2)
+    api_key: str = ""
+    api_secret: str = ""
+    access_token: str = ""
+    access_token_secret: str = ""
+    bearer_token: str = ""
+
+    # Posting budget
+    daily_budget: int = 50
+    hourly_cap: int = 17
+    critical_reserve_pct: float = 0.20
+
+    # Scoring weights
+    scoring_weights: dict = {
+        "whale_exchange_500k": 90,
+        "whale_vc": 80,
+        "whale_smart_money_100k": 70,
+        "price_ath": 75,
+        "price_target_hit": 30,
+        "portfolio_public": 50,
+    }
+
+    # Cooldowns (hours)
+    cooldown_wallet_hours: float = 4.0
+    cooldown_token_hours: float = 2.0
+
+    # Feature flags
+    enable_whale_tweets: bool = True
+    enable_price_tweets: bool = True
+    enable_portfolio_tweets: bool = False   # default OFF for privacy
+
+    # Circuit breaker
+    circuit_failure_threshold: int = 3
+    circuit_pause_seconds: int = 1800       # 30 min
+    circuit_max_pause_seconds: int = 7200   # 2h
+
+    # Queue overflow
+    max_queue_size: int = 100
+
+    model_config = SettingsConfigDict(env_prefix="TWITTER_", extra="ignore")
+
+
 class Settings(BaseSettings):
     # ── Bot tokens ──────────────────────────────────────────────────────────
     discord_token: str = ""
@@ -91,6 +139,9 @@ class Settings(BaseSettings):
 
     # ── Whale detection ───────────────────────────────────────────────────────
     whale_threshold_usd: float = 10_000.0
+
+    # ── Twitter / X broadcasting ───────────────────────────────────────────────
+    twitter: TwitterConfig = TwitterConfig()
 
     # ── Derived helpers ───────────────────────────────────────────────────────
 

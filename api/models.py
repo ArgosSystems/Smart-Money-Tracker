@@ -37,6 +37,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -239,6 +240,50 @@ class PriceAlertRule(Base):
         )
 
 
+class TwitterPost(Base):
+    """
+    Record of every tweet posted (or dry-run logged) by the TwitterBroadcaster.
+
+    tweet_id is NULL when TWITTER_DRY_RUN=true — the content was formatted
+    and stored for review but never sent to the Twitter API.
+    """
+
+    __tablename__ = "twitter_posts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    alert_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    tweet_id: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    thread_parent_id: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    posted_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    engagement_metrics: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+
+    def __repr__(self) -> str:
+        status = self.tweet_id or "dry-run"
+        return f"<TwitterPost {self.alert_type} alert={self.alert_id} tweet={status}>"
+
+
+class BroadcasterMetric(Base):
+    """
+    Operational metrics for broadcaster plugins (queue depth, posts/day, etc.).
+    Used for observability and analytics.
+    """
+
+    __tablename__ = "broadcaster_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plugin_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    metric_value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    recorded_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<BroadcasterMetric {self.plugin_name}:{self.metric_name}={self.metric_value}>"
+
+
 class SeenTransaction(Base):
     """
     Lightweight deduplication table — stores tx_hash+chain of every transaction
@@ -273,6 +318,7 @@ async def init_db() -> None:
         for table, time_col in [
             ("whale_alerts",        "detected_at"),
             ("portfolio_snapshots", "taken_at"),
+            ("twitter_posts",       "posted_at"),
         ]:
             await conn.execute(text(
                 f"SELECT create_hypertable('{table}', '{time_col}', "

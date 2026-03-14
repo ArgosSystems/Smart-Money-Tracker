@@ -28,6 +28,7 @@ from .cmd_portfolio import setup_portfolio
 from .cmd_price_alerts import setup_price_alerts
 from .cmd_info import setup_info
 from .cmd_help import setup_help
+from .cmd_twitter import setup_twitter
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -38,3 +39,4 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_price_alerts(bot)
     setup_info(bot)
     setup_help(bot)
+    setup_twitter(bot)

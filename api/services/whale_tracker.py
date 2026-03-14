@@ -31,6 +31,7 @@ MultiChainTracker._build_scanners() dispatches on chain_type:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import time
@@ -45,7 +46,8 @@ from web3 import AsyncHTTPProvider
 from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert
-from api.services.broadcaster import alert_broadcaster
+from api.events.dispatcher import event_dispatcher
+from api.events.types import WhaleAlertEvent
 from config.chains import CHAINS, ChainConfig, active_chains
 from config.settings import settings
 
@@ -295,22 +297,31 @@ class EvmChainScanner(BaseChainScanner):
                     "[%s] block %d → %d new whale alert(s)",
                     self.chain_name, block_number, len(new_alerts)
                 )
-                # Broadcast to all connected WebSocket clients
+                # Broadcast to all registered plugins (WebSocket, Twitter, etc.)
                 for alert in new_alerts:
-                    await alert_broadcaster.publish({
-                        "id":           alert.id,
-                        "chain":        alert.chain,
-                        "tx_hash":      alert.tx_hash,
-                        "from_address": alert.from_address,
-                        "to_address":   alert.to_address,
-                        "token_symbol": alert.token_symbol,
-                        "token_address":alert.token_address,
-                        "amount_token": alert.amount_token,
-                        "amount_usd":   alert.amount_usd,
-                        "direction":    alert.direction,
-                        "block_number": alert.block_number,
-                        "detected_at":  alert.detected_at.isoformat() if alert.detected_at else None,
-                    })
+                    wallet = wallet_map.get(alert.from_address) or wallet_map.get(alert.to_address)
+                    await event_dispatcher.dispatch(WhaleAlertEvent(
+                        alert_id=alert.id,
+                        chain=alert.chain,
+                        timestamp=alert.detected_at or datetime.datetime.utcnow(),
+                        metadata={
+                            "id":             alert.id,
+                            "tx_hash":        alert.tx_hash,
+                            "from_address":   alert.from_address,
+                            "to_address":     alert.to_address,
+                            "from_label":     wallet.label if wallet and alert.from_address == wallet.address.lower() else None,
+                            "to_label":       wallet.label if wallet and alert.to_address == wallet.address.lower() else None,
+                            "token_symbol":   alert.token_symbol,
+                            "token_address":  alert.token_address,
+                            "amount_token":   alert.amount_token,
+                            "amount_usd":     alert.amount_usd,
+                            "direction":      alert.direction,
+                            "block_number":   alert.block_number,
+                            "detected_at":    alert.detected_at.isoformat() if alert.detected_at else None,
+                            "smart_money_score": None,
+                            "entity_type":    "unknown",
+                        },
+                    ))
 
         return new_alerts
 

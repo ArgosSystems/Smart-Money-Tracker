@@ -5,6 +5,43 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-14
+
+### Added
+
+#### Twitter / X Auto-Broadcasting 🐦
+- **Typed event system** — `api/events/` package with `BroadcasterProtocol` interface, `AlertDTO` base class, and typed event subclasses (`WhaleAlertEvent`, `PriceTriggerEvent`, `PortfolioAlertEvent`)
+- **`EventDispatcher`** — central fan-out bus that replaces direct `alert_broadcaster.publish()` calls; supports pluggable broadcaster plugins via `BroadcasterProtocol`
+- **`WebSocketBroadcasterPlugin`** — wraps the existing `AlertBroadcaster` as a plugin; WebSocket subscribers see no change (full backward compatibility)
+- **`TwitterBroadcaster`** — production-grade plugin that auto-posts alerts to Twitter/X:
+  - **Priority scoring** (0–100 pts) — Exchange whale >$500K = 90pts, VC = 80pts, Smart money >$100K = 70pts, Price ATH = 75pts, Price target hit = 30pts
+  - **Token bucket rate limiter** — configurable daily budget (50/day), hourly cap (17/hour), 20% reserve for critical alerts (score > 90)
+  - **Per-entity cooldown** — 4 hours between tweets about the same wallet, 2 hours for the same token
+  - **Circuit breaker** — CLOSED → OPEN (after 3 consecutive 429/5xx) → HALF_OPEN (test one request); 30 min pause with exponential backoff to 2h max
+  - **Tweet rendering** — entity-first formatting for whales ("Binance moved..."), milestone formatting for price alerts ("SOL hit $150"), privacy-sanitized portfolio alerts
+  - **Thread composition** — 5+ alerts about the same entity within 10 min get composed into a Twitter thread
+  - **Dry-run mode** — `TWITTER_DRY_RUN=true` formats and logs tweets without posting; saved to DB for review
+- **`TwitterClient`** — async wrapper around tweepy for Twitter API v2 (OAuth 1.0a User Context)
+- **`TwitterPost` model** — TimescaleDB hypertable storing every tweet (or dry-run log) with `tweet_id`, `content`, `priority_score`, `engagement_metrics` (JSONB), `tenant_id` (future multi-tenancy)
+- **`BroadcasterMetric` model** — operational metrics for broadcaster plugins (queue depth, posts/day, circuit state)
+- **`TwitterConfig`** — Pydantic settings with `TWITTER_*` env prefix: `enabled`, `dry_run`, OAuth credentials, posting budget, scoring weights, cooldowns, feature flags, circuit breaker params
+- **`api/routers/twitter.py`** — REST endpoints: `GET /api/v1/twitter/status` (broadcaster state), `GET /api/v1/twitter/recent` (last N tweets), `GET /api/v1/twitter/preview` (render a tweet for a specific alert without posting)
+- **`/twitter_status`** Discord slash command (admin-only) — shows mode, queue depth, rate limit budget, circuit breaker state, feature flags, and last 5 tweets
+- **`/twitter_test`** Discord slash command (admin-only) — preview tweet rendering for a specific alert ID with score and gate pass/fail info
+- **`tweepy[async]`** added to `requirements.txt`
+- **`.env.example`** — all `TWITTER_*` variables documented with comments
+
+### Changed
+- **`api/services/whale_tracker.py`** — `alert_broadcaster.publish(dict)` replaced with `event_dispatcher.dispatch(WhaleAlertEvent(...))` — enriches alerts with `from_label`, `to_label`, `entity_type`, `smart_money_score`
+- **`api/services/price_alerts.py`** — `alert_broadcaster.publish(dict)` replaced with `event_dispatcher.dispatch(PriceTriggerEvent(...))`
+- **`api/main.py`** — lifespan registers `WebSocketBroadcasterPlugin` and (if enabled) `TwitterBroadcaster` with `EventDispatcher`; `/health` endpoint now includes `broadcasters` plugin status; Twitter router registered
+- **`api/models.py`** — added `TwitterPost` and `BroadcasterMetric` models; `twitter_posts` added to TimescaleDB hypertable setup
+- **`config/settings.py`** — added `TwitterConfig` nested model and `twitter` field on `Settings`
+- **`bots/discord_bot/commands.py`** — registers `setup_twitter` for the two new admin commands
+- **`README.md`** — bumped to v2.0.0; updated features table, architecture diagram, command tables, endpoint reference, project structure, configuration section, and roadmap
+
+---
+
 ## [1.8.0] - 2026-03-13
 
 ### Added
@@ -386,6 +423,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.0.0** | **2026-03-14** | **Twitter/X auto-broadcasting, typed event dispatcher, priority scoring, rate limiting, circuit breaker** |
+| 1.8.0 | 2026-03-13 | PostgreSQL + TimescaleDB, SeenTransaction dedup, docker-compose with TimescaleDB |
 | 1.7.0 | 2026-03-13 | Solana token safety scanner (/scan_token), wallet labels in alerts, /wallets command |
 | 1.6.5 | 2026-03-13 | Solana chain support, comprehensive test suite (~120 tests) |
 | 1.6.0 | 2026-03-12 | **PUBLIC LAUNCH** discord.py 2.7.1, Components V2, 18 slash commands, /help, /invite, API_BASE_URL, DISCORD_OAUTH_LINK |
@@ -404,26 +443,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These features are planned for future releases:
 
-### [1.4.0] - Planned (was 1.3.0)
+### [2.1.0] - Planned
 
-- WebSocket support for real-time push notifications
-- Additional chains (BSC, Polygon, Optimism, Solana)
-- Enhanced error handling and retry logic
-- Rate limiting for API endpoints
-
-### [1.3.0] - Planned
-
+- Smart money labeling — entity resolution for known exchanges, VCs, DAOs, MEV bots
+- Real-time Discord push notifications (alerts sent directly to a channel, not just on-demand)
 - Web dashboard with live charts
-- Portfolio tracking for watched wallets
-- Custom alert rules (e.g., specific tokens only)
-- Email notifications
 
-### [2.0.0] - Planned
+### [3.0.0] - Planned
 
 - Machine learning for whale behavior prediction
-- Kubernetes deployment manifests
-- PostgreSQL support for production deployments
+- Kubernetes Helm charts
 - Multi-tenant support for SaaS deployment
+- Telegram bot full feature parity
 
 ---
 

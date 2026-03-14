@@ -19,13 +19,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-from api.models import init_db, migrate_db
+from api.models import init_db, migrate_db, AsyncSessionLocal
 from api.routers import alerts, whales
 from api.routers.alerts import ws_router
-from api.routers import price_alerts, portfolio, token_safety
+from api.routers import price_alerts, portfolio, token_safety, twitter
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
 from api.services.portfolio_tracker import PortfolioTracker
+from api.services.broadcaster import alert_broadcaster
+from api.events.dispatcher import event_dispatcher, WebSocketBroadcasterPlugin
 from config.chains import CHAINS, active_chains
 from config.settings import settings
 
@@ -61,7 +63,26 @@ async def lifespan(app: FastAPI):
     port_tracker = PortfolioTracker()
     _portfolio_task = asyncio.create_task(port_tracker.start(), name="portfolio_tracker")
 
+    # ── Event dispatcher + broadcaster plugins ─────────────────────────────
+    logger.info("Initializing EventDispatcher…")
+    event_dispatcher.register(WebSocketBroadcasterPlugin(alert_broadcaster))
+
+    if settings.twitter.enabled:
+        from api.services.twitter.broadcaster import TwitterBroadcaster  # noqa: PLC0415
+        twitter_broadcaster = TwitterBroadcaster(
+            config=settings.twitter,
+            session_factory=AsyncSessionLocal,
+        )
+        event_dispatcher.register(twitter_broadcaster)
+        logger.info(
+            "TwitterBroadcaster registered (dry_run=%s)", settings.twitter.dry_run
+        )
+
+    await event_dispatcher.start_all()
+
     yield
+
+    await event_dispatcher.stop_all()
 
     for task in (_tracker_task, _price_checker_task, _portfolio_task):
         if task and not task.done():
@@ -80,7 +101,7 @@ app = FastAPI(
         "**Supported chains:** Ethereum, Base, Arbitrum\n\n"
         "Connect any client (Discord, Telegram, web dashboard) to this single API."
     ),
-    version="2.0.0",
+    version="2.0.0",  # Twitter/X broadcasting + typed event dispatcher
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -99,6 +120,7 @@ app.include_router(ws_router)
 app.include_router(price_alerts.router)
 app.include_router(portfolio.router)
 app.include_router(token_safety.router)
+app.include_router(twitter.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>
@@ -501,7 +523,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <a href="/redoc">ReDoc</a> &nbsp;·&nbsp;
     <a href="https://github.com/aymenelouadi/Smart-Money-Tracker" target="_blank">GitHub</a>
     <br />
-    <span style="font-size:12px;">v1.5.0 &nbsp;·&nbsp; Ethereum · Base · Arbitrum · BSC · Polygon · Optimism</span>
+    <span style="font-size:12px;">v2.0.0 &nbsp;·&nbsp; Ethereum · Base · Arbitrum · BSC · Polygon · Optimism · Solana</span>
   </footer>
 
 </div>
@@ -1097,6 +1119,7 @@ async def health() -> dict:
             }
             for name in CHAINS
         },
+        "broadcasters": event_dispatcher.plugin_status,
     }
 
 

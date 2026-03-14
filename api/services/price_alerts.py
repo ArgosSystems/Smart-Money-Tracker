@@ -27,7 +27,8 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import AsyncSessionLocal, PriceAlertRule, TokenActivity
-from api.services.broadcaster import alert_broadcaster
+from api.events.dispatcher import event_dispatcher
+from api.events.types import PriceTriggerEvent
 from config.chains import CHAINS
 
 logger = logging.getLogger(__name__)
@@ -172,19 +173,24 @@ class PriceAlertChecker:
                         rule.target_price_usd, price,
                     )
 
-                    # Broadcast to all WebSocket subscribers
-                    await alert_broadcaster.publish({
-                        "type":              "price_alert",
-                        "rule_id":           rule.id,
-                        "chain":             rule.chain,
-                        "token_address":     rule.token_address,
-                        "token_symbol":      rule.token_symbol,
-                        "condition":         rule.condition,
-                        "target_price_usd":  rule.target_price_usd,
-                        "current_price_usd": price,
-                        "label":             rule.label,
-                        "triggered_at":      now.isoformat(),
-                    })
+                    # Broadcast to all registered plugins (WebSocket, Twitter, etc.)
+                    await event_dispatcher.dispatch(PriceTriggerEvent(
+                        alert_id=rule.id,
+                        chain=rule.chain,
+                        timestamp=now,
+                        metadata={
+                            "type":              "price_alert",
+                            "rule_id":           rule.id,
+                            "token_address":     rule.token_address,
+                            "token_symbol":      rule.token_symbol,
+                            "condition":         rule.condition,
+                            "target_price_usd":  rule.target_price_usd,
+                            "current_price_usd": price,
+                            "label":             rule.label,
+                            "triggered_at":      now.isoformat(),
+                            "pct_change_24h":    None,
+                        },
+                    ))
 
                     # Update last_triggered_at in DB
                     rule_db = await db.get(PriceAlertRule, rule.id)
