@@ -45,7 +45,7 @@ from web3 import AsyncWeb3
 from web3 import AsyncHTTPProvider
 from web3.types import FilterParams
 
-from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert
+from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
 from api.events.dispatcher import event_dispatcher
 from api.events.types import WhaleAlertEvent
 from config.chains import CHAINS, ChainConfig, active_chains
@@ -201,6 +201,24 @@ class EvmChainScanner(BaseChainScanner):
         self._price_cache = _PriceCache()
         # ETH price is the same for every chain — use the shared module-level cache
         self._eth_price_cache = _SHARED_ETH_PRICE_CACHE
+        self._smart_label_cache: dict[str, dict] = {}
+        
+    async def _get_smart_label(self, db: AsyncSession, address: str) -> Optional[dict]:
+        if address in self._smart_label_cache:
+            parsed = self._smart_label_cache[address]
+            return parsed if parsed else None
+        
+        lbl = await db.scalar(select(SmartLabel).where(
+            SmartLabel.address == address, SmartLabel.chain == self.chain_name
+        ))
+        
+        if lbl:
+            data = {"name": lbl.name, "tier": lbl.tier, "entity_type": lbl.entity_type}
+            self._smart_label_cache[address] = data
+            return data
+            
+        self._smart_label_cache[address] = {}
+        return None
 
     # ── Web3 client (lazy) ────────────────────────────────────────────────────
 
@@ -320,6 +338,10 @@ class EvmChainScanner(BaseChainScanner):
                             "detected_at":    alert.detected_at.isoformat() if alert.detected_at else None,
                             "smart_money_score": None,
                             "entity_type":    "unknown",
+                            "from_smart_label_name": alert.from_smart_label_name if hasattr(alert, 'from_smart_label_name') else None,
+                            "from_smart_label_tier": alert.from_smart_label_tier if hasattr(alert, 'from_smart_label_tier') else None,
+                            "to_smart_label_name":   alert.to_smart_label_name if hasattr(alert, 'to_smart_label_name') else None,
+                            "to_smart_label_tier":   alert.to_smart_label_tier if hasattr(alert, 'to_smart_label_tier') else None,
                         },
                     ))
 
@@ -383,6 +405,16 @@ class EvmChainScanner(BaseChainScanner):
             block_number=block_number,
             raw_data=json.dumps({"log_index": log.get("logIndex")}),
         )
+
+        from_smart = await self._get_smart_label(db, from_addr)
+        to_smart = await self._get_smart_label(db, to_addr)
+        
+        # Attach transient attributes for the event dispatcher
+        setattr(alert, 'from_smart_label_name', from_smart['name'] if from_smart else None)
+        setattr(alert, 'from_smart_label_tier', from_smart['tier'] if from_smart else None)
+        setattr(alert, 'to_smart_label_name', to_smart['name'] if to_smart else None)
+        setattr(alert, 'to_smart_label_tier', to_smart['tier'] if to_smart else None)
+        
         db.add(alert)
         await self._upsert_token_activity(db, token_addr, meta["symbol"], direction, usd_value)
 
@@ -436,6 +468,15 @@ class EvmChainScanner(BaseChainScanner):
             block_number=block_number,
             raw_data=json.dumps({"gas": tx.get("gas")}),
         )
+
+        from_smart = await self._get_smart_label(db, from_addr)
+        to_smart = await self._get_smart_label(db, to_addr)
+        
+        setattr(alert, 'from_smart_label_name', from_smart['name'] if from_smart else None)
+        setattr(alert, 'from_smart_label_tier', from_smart['tier'] if from_smart else None)
+        setattr(alert, 'to_smart_label_name', to_smart['name'] if to_smart else None)
+        setattr(alert, 'to_smart_label_tier', to_smart['tier'] if to_smart else None)
+        
         db.add(alert)
 
         logger.info(

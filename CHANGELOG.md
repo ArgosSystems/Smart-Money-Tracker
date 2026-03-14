@@ -5,6 +5,70 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-03-14
+
+### Added
+
+#### Real-time Discord Push Notifications 🔔
+- **`bots/discord_bot/auto_push.py`** — background task that connects to the API WebSocket (`/ws/alerts`) on bot startup; auto-posts every incoming alert to all configured Discord channels. Reconnects automatically with exponential backoff (1s → 60s max).
+- **`api/routers/alert_channels.py`** — full CRUD for Discord alert channel configurations:
+  - `POST /api/v1/alert-channels` — register a channel (supports `min_score`, `chains`, `alert_types` filters)
+  - `GET /api/v1/alert-channels` — list channels with optional `?guild_id=` filter
+  - `GET /api/v1/alert-channels/active` — active channels joined with `GuildSubscription.tier` (used by the bot)
+  - `DELETE /api/v1/alert-channels/{id}` — remove a configuration
+  - `PATCH /api/v1/alert-channels/{id}/toggle` — enable / disable
+- **`AlertChannel` model** — stores per-channel filters (`min_score`, `chains` CSV, `alert_types` CSV, `is_active`)
+- **`/set_alert_channel`** Discord command — enables push in the current channel with optional score/chain/type filters (requires Manage Channels permission)
+- **`/alert_channels`** Discord command — lists all configured push channels for the server with their filters and status
+- **`/remove_alert_channel`** Discord command — removes a push channel config by ID
+- **`/toggle_alert_channel`** Discord command — enables or disables a push channel
+
+#### Smart Entity Labeling System 🏷️
+- **`SmartLabel` model** — stores known entity addresses with `name`, `entity_type`, `tier` (`free`/`pro`), and `chain`; unique constraint on `(address, chain)`
+- **`GuildSubscription` model** — per-Discord-guild subscription tier (`free`/`pro`) with optional `expires_at` for time-limited Pro access
+- **`api/routers/guilds.py`** — Guild management endpoints:
+  - `POST /api/v1/guilds` — auto-register guild as free tier on bot join
+  - `GET /api/v1/guilds/{guild_id}/tier` — get/lazy-create guild tier
+  - `PATCH /api/v1/guilds/{guild_id}/upgrade` — upgrade to Pro tier
+  - `GET /api/v1/guilds/{guild_id}/whois/{address}` — smart label lookup; Pro labels shown as "🤖 Smart Entity (Pro 🔒)" for free guilds
+- **`EvmChainScanner._get_smart_label()`** — per-scan in-memory label cache; enriches every whale alert with `from_smart_label_name/tier` and `to_smart_label_name/tier` at detection time
+- **`/who_is`** Discord command — look up any wallet address in the Smart Label database; masks Pro labels for free servers
+- **`admin/add_pro_label.py`** — CLI tool to add Pro-tier labels: `python admin/add_pro_label.py <address> <chain> <name> <entity_type>`
+- **`data/seed_smart_labels.py`** — seeds **80 free-tier** labels covering Binance, Coinbase, Kraken, OKX, Bybit, Bitfinex, HTX, Vitalik, Ethereum Foundation, Uniswap, Aave, Lido, MakerDAO, Jump Trading, Wintermute, Paradigm, Arbitrum/Optimism/Base bridges, Lido staking, DeFi routers, MEV bots, and more
+
+#### Pro / Free Tier Gating 🎯
+- Free guilds: real-time push notifications + 80 free-tier Smart Labels visible in alerts and `/who_is`
+- Pro guilds: real-time push notifications + all 300 Pro-tier Smart Labels (premium hedge funds, obscure exchange wallets, smart-money clusters)
+- `/admin upgrade_guild <guild_id>` — bot-owner Discord command to upgrade any server to Pro
+
+#### WebSocket Enhancements ⚡
+- `/ws/alerts` now accepts `?chains=ethereum,bsc` (multi-chain), `?min_score=70`, and `?alert_types=whale,price` query parameters for server-side filtering
+- `priority_score` field added to every WebSocket message (computed by `AlertScorer` in `WebSocketBroadcasterPlugin`)
+
+#### Event Dispatcher Metrics 📊
+- `EventDispatcher` now tracks per-plugin delivery counts, failure counts, and average latency (ms) in-memory
+- `GET /api/v1/metrics/events` — returns total dispatched count and per-plugin stats (`delivered`, `failed`, `avg_latency_ms`)
+- `AlertDelivery` model added for future persistent delivery audit log
+- `alert_deliveries` TimescaleDB hypertable registered in `init_db()`
+
+#### Bot Lifecycle
+- `on_guild_join` event — auto-registers new guilds as free tier via the Guilds API when the bot is added to a server
+
+### Fixed
+- **Critical:** `WhaleAlert` constructor in `_process_erc20_log` was missing `direction=direction` and `block_number=block_number` — these are NOT NULL columns; every ERC-20 whale alert would fail to save (regression introduced during smart label enrichment refactor)
+- **Critical:** `WhaleAlert` constructor in `_process_native_tx` was missing `direction=direction` — same NOT NULL violation for native ETH transfers
+- **Minor:** `/trending` command in `cmd_whale.py` had `title = ...` indented inside the `for` loop — it only set the title on the last iteration. Fixed to be set after the loop.
+- **Minor:** BOM character (`\ufeff`) removed from `cmd_whale.py`
+
+### Changed
+- `aiohttp>=3.9.0` added to `requirements.txt` (explicit dependency for the WebSocket client in `auto_push.py`)
+- `bots/discord_bot/commands.py` — registers `setup_alert_channels`, `setup_admin`
+- `bots/discord_bot/bot.py` — starts `auto_push` task on `on_ready`; registers new guild on `on_guild_join`
+- `api/main.py` — registers `alert_channels`, `metrics`, `guilds` routers
+- Architecture diagram updated to reflect Smart Label engine and real-time push layer
+
+---
+
 ## [2.0.0] - 2026-03-14
 
 ### Added

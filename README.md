@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v2.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v2.1.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -46,7 +46,10 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | ⚡ | **WebSocket Stream** | Real-time push of whale alerts via `/ws/alerts` (supports `wss://` for HTTPS deployments) |
 | 📊 | **Trending Tokens** | See which tokens whales are accumulating or dumping across all chains |
 | 🐦 | **Twitter/X Broadcasting** | Auto-post whale alerts and price triggers to Twitter/X with priority scoring, rate limiting, circuit breaker resilience, and dry-run mode |
-| 🤖 | **Multi-Platform Bots** | Discord (22 slash commands, Components V2) and Telegram bots |
+| 🏷️ | **Smart Labeling** | Identify 80+ known entities (Binance, Coinbase, Vitalik, Jump Trading, Lido…) in every alert. Pro servers unlock 300 premium labels |
+| 🔔 | **Real-time Discord Push** | Whale and price alerts pushed instantly to any channel you configure — no polling, zero latency. Filters by chain, score, and alert type |
+| 🎯 | **Free vs Pro Tier** | Free guilds see public labels + push notifications. Pro guilds unlock premium entity names on all alerts |
+| 🤖 | **Multi-Platform Bots** | Discord (26 slash commands, Components V2) and Telegram bots |
 | 🔌 | **REST API** | Full-featured API with Swagger UI and ReDoc documentation |
 | 💾 | **PostgreSQL + TimescaleDB** | Production-grade time-series database with automatic hypertables for whale alerts and portfolio snapshots |
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
@@ -58,35 +61,42 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│                                   User Interface                                      │
-├──────────────────┬──────────────────┬──────────────────┬──────────────┬───────────────┤
-│   Discord Bot    │  Web Dashboard   │  Telegram Bot    │ Twitter / X  │  WebSocket    │
-│ (discord.py 2.7) │ configurable URL │   (ptb 21.0)     │ Auto-posting │  Subscribers  │
-│ • 22 commands    │ • Dark-theme UI  │ • Multi-chain    │ • Dry-run    │ • Real-time   │
-│ • Components V2  │ • Swagger/ReDoc  │ • Command parity │ • Scoring    │ • Per-chain   │
-└────────┬─────────┴────────┬─────────┴────────┬─────────┴──────┬───────┴───────┬───────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    User Interface                                         │
+├──────────────────┬──────────────────┬──────────────────┬──────────────┬───────────────────┤
+│   Discord Bot    │  Web Dashboard   │  Telegram Bot    │ Twitter / X  │  WebSocket        │
+│ (discord.py 2.7) │ configurable URL │   (ptb 21.0)     │ Auto-posting │  Subscribers      │
+│ • 26 commands    │ • Dark-theme UI  │ • Multi-chain    │ • Dry-run    │ • Real-time       │
+│ • Components V2  │ • Swagger/ReDoc  │ • Command parity │ • Scoring    │ • Score filter    │
+│ • Push alerts    │                  │                  │              │ • Chain filter    │
+│ • Free / Pro     │                  │                  │              │                   │
+└────────┬─────────┴────────┬─────────┴────────┬─────────┴──────┬───────┴───────┬───────────┘
          │        HTTP REST API                 │                │               │
          └──────────────────┬───────────────────┘                │               │
                             │                                    │               │
-┌───────────────────────────▼────────────────────────────────────────────────────────────┐
-│                           FastAPI Backend  (Port 8000)                                  │
-│  Wallet Management · Alert History · Price Alerts · Portfolio Tracking                  │
-│                                                                                        │
-│  ┌── EventDispatcher (typed AlertDTO bus) ────────────────────────────────────────┐     │
-│  │  WhaleAlertEvent / PriceTriggerEvent / PortfolioAlertEvent                    │     │
-│  │       ├── WebSocketBroadcasterPlugin → WS subscribers                         │     │
-│  │       └── TwitterBroadcaster → scoring → rate limit → circuit breaker → X API │     │
-│  └───────────────────────────────────────────────────────────────────────────────-┘     │
-└──────────┬──────────────────────┬──────────────────────┬───────────────────────────────-┘
+┌───────────────────────────▼──────────────────────────────────────────────────────────────┐
+│                           FastAPI Backend  (Port 8000)                                    │
+│  Wallet Management · Alert History · Price Alerts · Portfolio · Alert Channels · Guilds  │
+│                                                                                          │
+│  ┌── EventDispatcher (typed AlertDTO bus) ──────────────────────────────────────────┐    │
+│  │  WhaleAlertEvent / PriceTriggerEvent / PortfolioAlertEvent                      │    │
+│  │       ├── WebSocketBroadcasterPlugin → WS subscribers (score+chain filtered)    │    │
+│  │       └── TwitterBroadcaster → scoring → rate limit → circuit breaker → X API  │    │
+│  └─────────────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                          │
+│  ┌── SmartLabel Engine ────────────────────────────────────────────────────────────┐    │
+│  │  80 free-tier labels  +  300 pro-tier labels (per GuildSubscription.tier)      │    │
+│  │  Labels enriched at scan time, served per-guild via /guilds/{id}/whois         │    │
+│  └─────────────────────────────────────────────────────────────────────────────────┘    │
+└──────────┬──────────────────────┬──────────────────────┬──────────────────────────────────┘
            │                      │                       │
 ┌──────────▼─────────┐  ┌────────▼──────────┐  ┌─────────▼──────────┐
 │ MultiChainTracker  │  │ PostgreSQL+TS DB  │  │  CoinGecko API     │
 │ • EvmChainScanner  │  │  WhaleAlert ⏱     │  │  (60s TTL cache)   │
-│ • SolanaScanner    │  │  PriceAlertRule   │  └────────────────────┘
-│ • Concurrent       │  │  PortfolioSnap ⏱  │
-│   polling          │  │  TwitterPost ⏱    │
-└──────────┬─────────┘  │  BroadcasterMetric│
+│ • SolanaScanner    │  │  SmartLabel       │  └────────────────────┘
+│ • SmartLabel       │  │  GuildSubscription│
+│   enrichment       │  │  AlertChannel     │
+└──────────┬─────────┘  │  TwitterPost ⏱   │
            │            └───────────────────┘
   ⬛ ETH  🔵 Base  🔶 ARB
   🟡 BSC  🟣 MATIC  🔴 OP  ◎ SOL
@@ -248,6 +258,18 @@ Once the API is running, access the interactive documentation at:
 | `GET` | `/api/v1/twitter/status` | Broadcaster status (queue, budget, circuit breaker) |
 | `GET` | `/api/v1/twitter/recent` | Last N posted/dry-run tweets |
 | `GET` | `/api/v1/twitter/preview` | Preview tweet rendering for a specific alert |
+| **Alert Channels** | | |
+| `POST` | `/api/v1/alert-channels` | Register a Discord channel for real-time push |
+| `GET` | `/api/v1/alert-channels` | List channels (`?guild_id=` filter) |
+| `GET` | `/api/v1/alert-channels/active` | Active channels with guild tier (used by bot) |
+| `DELETE` | `/api/v1/alert-channels/{id}` | Remove a channel configuration |
+| `PATCH` | `/api/v1/alert-channels/{id}/toggle` | Enable / disable a channel |
+| **Smart Labels & Guilds** | | |
+| `GET` | `/api/v1/guilds/{guild_id}/tier` | Get guild subscription tier |
+| `PATCH` | `/api/v1/guilds/{guild_id}/upgrade` | Upgrade guild to Pro tier |
+| `GET` | `/api/v1/guilds/{guild_id}/whois/{address}` | Smart label lookup (Pro labels masked for free guilds) |
+| **Metrics** | | |
+| `GET` | `/api/v1/metrics/events` | Event dispatcher metrics (deliveries, latency per plugin) |
 
 ---
 
@@ -259,6 +281,9 @@ const ws = new WebSocket('ws://localhost:8000/ws/alerts');
 
 // Single chain filter
 const ws = new WebSocket('ws://localhost:8000/ws/alerts?chain=ethereum');
+
+// Multi-chain + score filter (only high-priority alerts)
+const ws = new WebSocket('ws://localhost:8000/ws/alerts?chains=ethereum,bsc&min_score=70');
 
 // HTTPS deployments automatically upgrade to wss://
 // const ws = new WebSocket('wss://tracker.yourdomain.com/ws/alerts');
@@ -369,12 +394,33 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/price_alert_delete <id>` | Delete an alert rule |
 | `/price_alert_toggle <id>` | Enable / disable a rule |
 
+**🔔 Alert Channels (Real-time Push)**
+
+| Command | Description |
+|---------|-------------|
+| `/set_alert_channel [min_score] [chains] [alert_types]` | Enable real-time whale/price push in the current channel |
+| `/alert_channels` | List all configured push channels for this server |
+| `/remove_alert_channel <id>` | Remove a push channel configuration |
+| `/toggle_alert_channel <id>` | Enable or disable a push channel |
+
+**🏷️ Smart Labels**
+
+| Command | Description |
+|---------|-------------|
+| `/who_is <address> [chain]` | Look up a wallet in the Smart Label database (Pro labels masked for free servers) |
+
 **🐦 Twitter (Admin)**
 
 | Command | Description |
 |---------|-------------|
 | `/twitter_status` | Show broadcaster status: queue depth, rate limit budget, circuit breaker state |
 | `/twitter_test <alert_id> [type]` | Preview what a tweet would look like for a specific alert |
+
+**🔧 Admin (Bot Owner Only)**
+
+| Command | Description |
+|---------|-------------|
+| `/admin upgrade_guild <guild_id>` | Upgrade a Discord server to Pro tier |
 
 **ℹ️ Info**
 
@@ -453,6 +499,16 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `DISCORD_CLIENT_SECRET` | `""` | Client secret (required for OAuth code-exchange flows) |
 | `DISCORD_OAUTH_SCOPES` | `bot applications.commands` | Space-separated OAuth2 scopes added to the invite URL |
 | `DISCORD_OAUTH_PERMISSIONS` | `2147568640` | Integer permission bits on the invite URL |
+
+### Optional — Smart Labels & Pro Tier
+
+| Variable / Action | Description |
+|---|---|
+| `python data/seed_smart_labels.py` | Seed **80 free-tier** labels (exchanges, VCs, founders, DAOs, bridges, MEV bots) into the database |
+| `python admin/add_pro_label.py <address> <chain> <name> <type>` | Add a **Pro-tier** label (visible only to Pro guilds, capacity: up to 300) |
+| `/admin upgrade_guild <guild_id>` | Bot-owner Discord command to upgrade a server to Pro |
+
+The Pro tier gate is enforced per-guild. Free guilds see publicly known entities; Pro guilds see all 300 premium labels (hedge funds, obscure exchange wallets, smart-money clusters, etc.).
 
 ### Optional — Twitter / X Broadcasting
 
@@ -601,8 +657,11 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Solana token safety scanner (anti-rug via RugCheck.xyz)
 - [x] PostgreSQL + TimescaleDB for production time-series storage
 - [x] Twitter/X auto-broadcasting with typed event dispatcher
+- [x] Real-time Discord push notifications with score/chain/type filters
+- [x] Smart entity labeling — 80 free + 300 Pro tier labels
+- [x] Free / Pro guild subscription system
 - [ ] Web dashboard with live charts
-- [ ] Smart money labeling (exchange/VC/MEV entity resolution)
+- [ ] Expand Pro label database beyond 300 entities (Solana wallets, Layer 2 smart money)
 - [ ] Machine learning for whale behavior prediction
 - [ ] Kubernetes Helm charts
 

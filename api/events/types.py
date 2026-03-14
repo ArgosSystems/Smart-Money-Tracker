@@ -38,6 +38,10 @@ class WhaleAlertEvent(AlertDTO):
     block_number     : int
     smart_money_score: float | None  — 0.0-1.0 confidence
     entity_type      : "exchange" | "vc" | "smart_money" | "unknown"
+    from_smart_label_name: str | None
+    from_smart_label_tier: str | None
+    to_smart_label_name  : str | None
+    to_smart_label_tier  : str | None
     """
 
     alert_type: AlertType = field(default=AlertType.WHALE, init=False)

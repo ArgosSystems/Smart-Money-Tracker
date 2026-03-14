@@ -1,4 +1,4 @@
-﻿"""
+"""
 bots/discord_bot/cmd_whale.py
 ------------------------------
 Whale-tracking slash commands:
@@ -281,5 +281,56 @@ def setup_whale(bot: commands.Bot) -> None:
                 f"{token['buy_count']} buys  /  {token['sell_count']} sells  "
                 f"- Vol: {fmt_usd(token['total_volume_usd'])}"
             )
-        title = f"Trending{' - ' + chain_badge(chain.value) if chain else ' - All Chains'}"
+            title = f"Trending{' - ' + chain_badge(chain.value) if chain else ' - All Chains'}"
         await cv2_send(interaction, title=title, lines=lines, color=COLOR_BUY)
+
+    # /who_is
+    @bot.tree.command(name="who_is", description="Look up an address in the Smart Label database")
+    @app_commands.describe(
+        address="Wallet address (0x...)",
+        chain="Chain to search on (default: Ethereum)"
+    )
+    @app_commands.choices(chain=CHAIN_CHOICES)
+    async def who_is(
+        interaction: discord.Interaction,
+        address: str,
+        chain: Optional[app_commands.Choice[str]] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+        chain_value = chain.value if chain else "ethereum"
+        guild_id = str(interaction.guild_id) if interaction.guild_id else "unknown"
+
+        data = await api_get(f"/guilds/{guild_id}/whois/{address}", params={"chain": chain_value})
+
+        if not data:
+            await cv2_error(interaction, "API Error", "Could not fetch label data.")
+            return
+
+        name = data.get("name")
+        entity_type = data.get("entity_type")
+        is_masked = data.get("is_masked")
+        tier = data.get("tier")
+
+        if not name:
+            await cv2_send(
+                interaction,
+                title="Unknown Address",
+                lines=[f"`{address}` is not in the Smart Label database."],
+                color=COLOR_INFO
+            )
+            return
+
+        if is_masked:
+            lines = [
+                f"**Name:** {name}",
+                "",
+                "*(This label is part of the Pro database. Upgrade your server to see full details!)*"
+            ]
+            await cv2_send(interaction, title="Smart Label Lookup", lines=lines, color=COLOR_WARN)
+        else:
+            lines = [
+                f"**Address:** `{address}`",
+                f"**Entity:** {name} ({entity_type})",
+                f"**Tier:** {tier.capitalize() if tier else 'Unknown'}"
+            ]
+            await cv2_send(interaction, title="Smart Label Lookup", lines=lines, color=COLOR_BUY)
