@@ -22,6 +22,7 @@ import discord
 from discord.ext import commands
 
 from bots.discord_bot.commands import setup_commands
+from bots.discord_bot.auto_push import start_auto_push, stop_auto_push
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,21 @@ def create_bot() -> commands.Bot:
             logger.info("Synced %d slash command(s).", len(synced))
         except Exception as exc:
             logger.error("Failed to sync commands: %s", exc)
+        # Start real-time alert auto-push to configured channels
+        await start_auto_push(bot)
 
     @bot.event
     async def on_command_error(ctx: commands.Context, error: Exception) -> None:
         logger.error("Command error: %s", error)
+
+    @bot.event
+    async def on_guild_join(guild: discord.Guild) -> None:
+        logger.info("Joined guild %s (%s). Registering tier.", guild.name, guild.id)
+        try:
+            from bots.discord_bot._shared import api_post
+            await api_post("/guilds", {"guild_id": str(guild.id)})
+        except Exception as exc:
+            logger.error("Failed to register guild %s: %s", guild.id, exc)
 
     return bot
 

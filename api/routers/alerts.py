@@ -131,12 +131,18 @@ async def get_token_alerts(
 async def websocket_alerts(
     websocket: WebSocket,
     chain: Optional[str] = Query(default=None, description="Filter by chain (e.g. ethereum, bsc)"),
+    chains: Optional[str] = Query(default=None, description="Comma-separated chains (e.g. ethereum,bsc)"),
+    min_score: float = Query(default=0.0, description="Minimum priority score (0-100)"),
+    alert_types: Optional[str] = Query(default=None, description="Comma-separated types (whale,price,portfolio)"),
 ) -> None:
     """
     WebSocket endpoint — streams new whale alerts in real-time.
 
     Connect with:  ws://localhost:8000/ws/alerts
     Filter chain:  ws://localhost:8000/ws/alerts?chain=ethereum
+    Multi-chain:   ws://localhost:8000/ws/alerts?chains=ethereum,bsc
+    Score filter:  ws://localhost:8000/ws/alerts?min_score=70
+    Alert types:   ws://localhost:8000/ws/alerts?alert_types=whale,price
 
     Each message is a JSON object matching the AlertResponse schema.
     The connection stays open indefinitely; the server sends data only when
@@ -144,15 +150,36 @@ async def websocket_alerts(
     """
     await websocket.accept()
     queue = alert_broadcaster.subscribe()
-    chain_filter = chain.lower() if chain else None
+
+    # Build chain filter set (supports both ?chain= and ?chains=)
+    chain_set: set[str] | None = None
+    if chains:
+        chain_set = {c.strip().lower() for c in chains.split(",") if c.strip()}
+    elif chain:
+        chain_set = {chain.lower()}
+
+    # Build alert type filter set
+    type_set: set[str] | None = None
+    if alert_types:
+        type_set = {t.strip().lower() for t in alert_types.split(",") if t.strip()}
 
     try:
         while True:
             data: dict = await queue.get()
 
-            # Apply optional chain filter server-side
-            if chain_filter and data.get("chain") != chain_filter:
+            # Chain filter
+            if chain_set and data.get("chain", "").lower() not in chain_set:
                 continue
+
+            # Alert type filter
+            if type_set and data.get("alert_type", "whale").lower() not in type_set:
+                continue
+
+            # Score filter
+            if min_score > 0:
+                score = data.get("priority_score", 0) or 0
+                if score < min_score:
+                    continue
 
             await websocket.send_json(data)
 

@@ -284,6 +284,115 @@ class BroadcasterMetric(Base):
         return f"<BroadcasterMetric {self.plugin_name}:{self.metric_name}={self.metric_value}>"
 
 
+class SmartLabel(Base):
+    """
+    A known entity address for smart labeling (Exchanges, VCs, Smart Money, etc.).
+    """
+
+    __tablename__ = "smart_labels"
+    __table_args__ = (
+        UniqueConstraint("address", "chain", name="uq_smart_label_address_chain"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, default="ethereum", index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    tier: Mapped[str] = mapped_column(String(10), nullable=False, default="free") # 'free' or 'pro'
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<SmartLabel {self.chain}:{self.address[:8]} {self.name} tier={self.tier}>"
+
+
+class GuildSubscription(Base):
+    """
+    Discord server/Guild subscription details to manage Free vs Pro features.
+    """
+
+    __tablename__ = "guild_subscriptions"
+
+    guild_id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    tier: Mapped[str] = mapped_column(String(10), nullable=False, default="free") # 'free' or 'pro'
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<GuildSubscription guild={self.guild_id} tier={self.tier}>"
+
+
+class AlertChannel(Base):
+    """
+    A Discord channel configured to receive real-time alert push notifications.
+
+    Each guild can have multiple alert channels with different filters
+    (e.g., one for critical-only whale alerts, one for all chains).
+    """
+
+    __tablename__ = "alert_channels"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "channel_id", name="uq_alert_channel"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    channel_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    min_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    chains: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True
+    )  # comma-separated chain names, NULL = all chains
+    alert_types: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )  # comma-separated: "whale,price,portfolio", NULL = all
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<AlertChannel guild={self.guild_id} channel={self.channel_id} min_score={self.min_score}>"
+
+    @property
+    def chain_list(self) -> list[str] | None:
+        """Parse chains CSV into a list, or None for 'all chains'."""
+        if not self.chains:
+            return None
+        return [c.strip().lower() for c in self.chains.split(",") if c.strip()]
+
+    @property
+    def alert_type_list(self) -> list[str] | None:
+        """Parse alert_types CSV into a list, or None for 'all types'."""
+        if not self.alert_types:
+            return None
+        return [t.strip().lower() for t in self.alert_types.split(",") if t.strip()]
+
+
+class AlertDelivery(Base):
+    """
+    Tracks delivery of each alert to each output channel.
+
+    Used for observability: latency tracking, delivery confirmation,
+    and debugging missed alerts.
+    """
+
+    __tablename__ = "alert_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    alert_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    plugin_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="delivered"
+    )  # delivered | dropped | failed
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    delivered_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return (
+            f"<AlertDelivery {self.plugin_name} alert={self.alert_id} "
+            f"status={self.status} latency={self.latency_ms:.1f}ms>"
+        )
+
+
 class SeenTransaction(Base):
     """
     Lightweight deduplication table — stores tx_hash+chain of every transaction
@@ -319,6 +428,7 @@ async def init_db() -> None:
             ("whale_alerts",        "detected_at"),
             ("portfolio_snapshots", "taken_at"),
             ("twitter_posts",       "posted_at"),
+            ("alert_deliveries",    "delivered_at"),
         ]:
             await conn.execute(text(
                 f"SELECT create_hypertable('{table}', '{time_col}', "
@@ -394,6 +504,9 @@ async def migrate_db() -> None:
                 END $$;
             """))
             logger.info("Migration: token_activity done.")
+
+        # 4. smart_labels and guild_subscriptions tables will be created automatically by create_all 
+        # in init_db(). No altering is needed for new tables unless columns need to be added to existing ones.
 
 
 # ── FastAPI dependency ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-﻿"""
+"""
 bots/discord_bot/commands.py
 -----------------------------
 Entry point — registers all slash commands by calling each module's
@@ -29,6 +29,8 @@ from .cmd_price_alerts import setup_price_alerts
 from .cmd_info import setup_info
 from .cmd_help import setup_help
 from .cmd_twitter import setup_twitter
+from .cmd_alert_channels import setup_alert_channels
+from .cmd_admin import setup_admin
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -40,3 +42,5 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_info(bot)
     setup_help(bot)
     setup_twitter(bot)
+    setup_alert_channels(bot)
+    setup_admin(bot)

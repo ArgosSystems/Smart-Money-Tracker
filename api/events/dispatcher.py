@@ -23,10 +23,38 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import defaultdict
 
 from api.events.protocol import AlertDTO, BroadcasterProtocol
+from api.services.twitter.scoring import AlertScorer
 
 logger = logging.getLogger(__name__)
+
+
+class _PluginMetrics:
+    """In-memory delivery metrics for a single plugin."""
+
+    __slots__ = ("delivered", "failed", "dropped", "total_latency_ms")
+
+    def __init__(self) -> None:
+        self.delivered: int = 0
+        self.failed: int = 0
+        self.dropped: int = 0
+        self.total_latency_ms: float = 0.0
+
+    @property
+    def avg_latency_ms(self) -> float:
+        total = self.delivered + self.failed
+        return (self.total_latency_ms / total) if total > 0 else 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "delivered": self.delivered,
+            "failed": self.failed,
+            "dropped": self.dropped,
+            "avg_latency_ms": round(self.avg_latency_ms, 2),
+        }
 
 
 class EventDispatcher:
@@ -35,10 +63,13 @@ class EventDispatcher:
     every dispatched event to all of them concurrently.
 
     One plugin's failure never blocks or crashes another.
+    Tracks delivery metrics per plugin for observability.
     """
 
     def __init__(self) -> None:
         self._plugins: dict[str, BroadcasterProtocol] = {}
+        self._metrics: dict[str, _PluginMetrics] = defaultdict(_PluginMetrics)
+        self._total_dispatched: int = 0
 
     # ── Plugin management ──────────────────────────────────────────────────────
 
@@ -64,6 +95,8 @@ class EventDispatcher:
         if not self._plugins:
             return
 
+        self._total_dispatched += 1
+
         results = await asyncio.gather(
             *(self._safe_handle(plugin, event) for plugin in self._plugins.values()),
             return_exceptions=True,
@@ -73,10 +106,18 @@ class EventDispatcher:
                 logger.error("EventDispatcher: unexpected gather error: %s", result)
 
     async def _safe_handle(self, plugin: BroadcasterProtocol, event: AlertDTO) -> None:
-        """Call handle_event with exception isolation."""
+        """Call handle_event with exception isolation and latency tracking."""
+        metrics = self._metrics[plugin.name]
+        t0 = time.monotonic()
         try:
             await plugin.handle_event(event)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            metrics.delivered += 1
+            metrics.total_latency_ms += elapsed_ms
         except Exception as exc:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            metrics.failed += 1
+            metrics.total_latency_ms += elapsed_ms
             logger.error(
                 "EventDispatcher: plugin '%s' failed on event %s (alert_id=%d): %s",
                 plugin.name, event.alert_type.value, event.alert_id, exc,
@@ -109,6 +150,20 @@ class EventDispatcher:
         """Map of plugin_name → is_healthy.  Exposed via /health endpoint."""
         return {name: plugin.is_healthy for name, plugin in self._plugins.items()}
 
+    @property
+    def dispatch_metrics(self) -> dict:
+        """Full metrics snapshot for the /api/v1/metrics/events endpoint."""
+        return {
+            "total_dispatched": self._total_dispatched,
+            "plugins": {
+                name: {
+                    "healthy": self._plugins[name].is_healthy if name in self._plugins else False,
+                    **self._metrics[name].to_dict(),
+                }
+                for name in self._metrics
+            },
+        }
+
 
 # ── Module-level singleton ────────────────────────────────────────────────────
 
@@ -126,6 +181,7 @@ class WebSocketBroadcasterPlugin:
     def __init__(self, broadcaster: object) -> None:
         # Accept the AlertBroadcaster instance (avoids circular import of the type)
         self._broadcaster = broadcaster
+        self._scorer = AlertScorer()
 
     @property
     def name(self) -> str:
@@ -143,4 +199,6 @@ class WebSocketBroadcasterPlugin:
 
     async def handle_event(self, event: AlertDTO) -> None:
         """Convert AlertDTO to dict and publish via the existing broadcaster."""
-        await self._broadcaster.publish(event.to_dict())  # type: ignore[attr-defined]
+        data = event.to_dict()
+        data["priority_score"] = self._scorer.score(event)
+        await self._broadcaster.publish(data)  # type: ignore[attr-defined]
