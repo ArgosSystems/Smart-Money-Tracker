@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,17 +121,18 @@ async def list_active_channels(
     return response
 
 
-@router.delete("/{channel_db_id}", status_code=204)
+@router.delete("/{channel_db_id}", status_code=204, response_class=Response)
 async def delete_alert_channel(
     channel_db_id: int,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """Remove an alert channel configuration."""
     channel = await db.get(AlertChannel, channel_db_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Alert channel not found")
     await db.delete(channel)
     await db.commit()
+    return Response(status_code=204)
 
 
 @router.patch("/{channel_db_id}/toggle", response_model=AlertChannelResponse)
