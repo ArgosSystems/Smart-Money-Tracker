@@ -22,7 +22,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import TrackedWallet, get_db
+from api.models import TrackedWallet, WalletPosition, get_db
 from api.services.price_alerts import get_trending_tokens
 from config.chains import CHAIN_NAMES, CHAINS, active_chains
 from config.settings import settings
@@ -232,3 +232,50 @@ async def list_chains() -> list[ChainStatusResponse]:
         )
         for name, cfg in CHAINS.items()
     ]
+
+
+# ── Wallet P&L ────────────────────────────────────────────────────────────────
+
+class WalletPositionResponse(BaseModel):
+    id: int
+    wallet_address: str
+    chain: str
+    token_key: str
+    token_symbol: Optional[str]
+    token_address: Optional[str]
+    avg_cost_usd: float
+    total_bought_token: float
+    total_bought_usd: float
+    total_sold_token: float
+    total_sold_usd: float
+    realized_pnl_usd: float
+    tx_count: int
+
+    model_config = {"from_attributes": True}
+
+
+@router.get(
+    "/wallets/{address}/pnl",
+    response_model=list[WalletPositionResponse],
+    summary="Wallet P&L — realized profit/loss per token",
+)
+async def wallet_pnl(
+    address: str,
+    chain: Optional[str] = Query(default=None, description="Filter by chain"),
+    db: AsyncSession = Depends(get_db),
+) -> list[WalletPosition]:
+    """
+    Return all tracked token positions and realized P&L for a wallet.
+
+    Positions are created automatically whenever a whale alert for this
+    address is committed by the scanner.
+    """
+    query = select(WalletPosition).where(
+        WalletPosition.wallet_address == address.lower()
+    ).order_by(WalletPosition.realized_pnl_usd.desc())
+
+    if chain:
+        query = query.where(WalletPosition.chain == chain.lower())
+
+    result = await db.execute(query)
+    return list(result.scalars().all())

@@ -5,6 +5,42 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-03-16
+
+### Added
+
+#### Wallet P&L Tracker 📈
+- **`WalletPosition` model** — new DB table `wallet_positions`; tracks per-wallet, per-chain, per-token cost basis and realized profit/loss using weighted-average cost basis (WACB). `token_key` sentinel (`NATIVE:ETH`, `NATIVE:BNB`, etc.) ensures NULL-safe unique constraint `(wallet_address, chain, token_key)`
+- **`api/services/position_tracker.py`** — stateless `update_position(db, alert, wallet_map)` helper called after every committed whale alert:
+  - **BUY** → updates `avg_cost_usd` using WACB formula: `(old_avg × old_qty + price × new_qty) / new_qty`
+  - **SELL** → realizes P&L: `(sell_price - avg_cost) × amount_token`; updates `total_sold_*` and `realized_pnl_usd`
+  - **SEND** → skipped (no cost-basis impact)
+- **`GET /api/v1/wallets/{address}/pnl`** — returns all `WalletPosition` rows for a wallet, sorted by `realized_pnl_usd` desc; optional `?chain=` filter
+- **`/wallet_pnl <address> [chain]`** Discord command — shows realized P&L per token with buy/sell totals, average cost, and a color-coded total (green = profit, red = loss)
+
+#### Accumulation Detection 🔁
+- **`AccumulationEvent` model** — new DB table `accumulation_events`; TimescaleDB hypertable on `fired_at`; stores `wallet_address`, `chain`, `token_symbol/address`, `buy_count`, `total_usd`, `avg_per_tx_usd`, `window_hours`
+- **`AlertType.ACCUMULATION`** — new enum value added to `api/events/protocol.py`
+- **`AccumulationAlertEvent`** — new typed event subclass in `api/events/types.py` with full metadata documentation
+- **`api/services/accumulation_detector.py`** — stateless `check_accumulation(db, alert, wallet_map)` pattern detector:
+  - Fires when a wallet has **≥ 3 BUY alerts** for the same token in a **24-hour window** with **≥ $50K total volume**
+  - **6-hour cooldown** per `(wallet, chain, token)` triple prevents alert spam
+  - Matches token by `token_address` (ERC-20) or `token_symbol` (native) for correct deduplication
+- **`GET /api/v1/alerts/accumulations`** — paginated list of recent accumulation pattern alerts; optional `?chain=` filter
+- **`/accumulation_alerts [chain] [count]`** Discord command — shows wallets repeatedly buying the same token with buy count, total volume, average per tx, and detection time
+- **Real-time push** — accumulation alerts broadcast via `EventDispatcher` as `AccumulationAlertEvent`; `auto_push.py` formats and delivers them to configured Discord channels
+
+#### Two-Phase Commit Integration ⚙️
+- **`EvmChainScanner._scan_block_range()`** — after the first `db.commit()` (which assigns `whale_alert.id`), runs `update_position()` and `check_accumulation()` for each new alert, then commits a second time. Errors in phase 2 are caught and logged — they never block whale alert delivery
+
+### Changed
+- **`docker-compose.yml`** — DB credentials now read from `POSTGRES_*` env vars (no more hardcoded `smart_money/smart_money`); PostgreSQL port bound to `127.0.0.1` only (not exposed to internet); app service uses `env_file: .env` instead of listing each variable individually
+- **`.env.example`** — added `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` variables with a production security reminder; improved `DATABASE_URL` comments for Docker vs local dev
+- **`bots/discord_bot/commands.py`** — registers `setup_pnl`, `setup_accumulation`
+- **`api/services/whale_tracker.py`** — imports `AccumulationAlertEvent`, `update_position`, `check_accumulation`; dispatches `AccumulationAlertEvent` for each pattern that fires
+
+---
+
 ## [2.1.0] - 2026-03-14
 
 ### Added
@@ -487,7 +523,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.0.0** | **2026-03-14** | **Twitter/X auto-broadcasting, typed event dispatcher, priority scoring, rate limiting, circuit breaker** |
+| **2.2.0** | **2026-03-16** | **Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening** |
+| 2.1.0 | 2026-03-14 | Real-time Discord push notifications, smart entity labeling (80 free / 300 pro), pro/free tier gating |
+| 2.0.0 | 2026-03-14 | Twitter/X auto-broadcasting, typed event dispatcher, priority scoring, rate limiting, circuit breaker |
 | 1.8.0 | 2026-03-13 | PostgreSQL + TimescaleDB, SeenTransaction dedup, docker-compose with TimescaleDB |
 | 1.7.0 | 2026-03-13 | Solana token safety scanner (/scan_token), wallet labels in alerts, /wallets command |
 | 1.6.5 | 2026-03-13 | Solana chain support, comprehensive test suite (~120 tests) |
@@ -507,18 +545,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These features are planned for future releases:
 
-### [2.1.0] - Planned
+### [2.3.0] - Planned
 
-- Smart money labeling — entity resolution for known exchanges, VCs, DAOs, MEV bots
-- Real-time Discord push notifications (alerts sent directly to a channel, not just on-demand)
-- Web dashboard with live charts
+- Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
+- Telegram bot full feature parity with Discord (push notifications, P&L, accumulation)
+- Unrealized P&L — fetch current token price and compute open position value
 
 ### [3.0.0] - Planned
 
 - Machine learning for whale behavior prediction
 - Kubernetes Helm charts
-- Multi-tenant support for SaaS deployment
-- Telegram bot full feature parity
+- Multi-tenant SaaS deployment with per-guild RPC isolation
 
 ---
 

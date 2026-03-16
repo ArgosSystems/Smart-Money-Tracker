@@ -108,6 +108,32 @@ def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str],
     return title, lines, color, footer
 
 
+def _format_accumulation_alert(data: dict) -> tuple[str, list[str], discord.Color, str]:
+    """Build CV2 title, lines, color, footer from an accumulation alert dict."""
+    wallet  = data.get("wallet_address", "")
+    symbol  = data.get("token_symbol") or "Unknown"
+    chain   = data.get("chain", "ethereum")
+    buys    = data.get("buy_count", 0)
+    total   = data.get("total_usd", 0.0)
+    avg     = data.get("avg_per_tx_usd", 0.0)
+    window  = data.get("window_hours", 24)
+    label   = data.get("wallet_label")
+
+    wallet_str = f"`{short_addr(wallet)}`"
+    if label:
+        wallet_str += f" **({label})**"
+
+    c_emoji = CHAIN_EMOJI.get(chain, "")
+    lines = [
+        f"🔁 **{symbol}** accumulated {buys}x in {window}h  {c_emoji}",
+        f"Wallet: {wallet_str}",
+        f"Total: {fmt_usd(total)}  |  Avg per tx: {fmt_usd(avg)}",
+    ]
+    title  = f"Accumulation Alert — {chain_badge(chain)}"
+    footer = "Smart Money Tracker — Accumulation Detection"
+    return title, lines, COLOR_BUY, footer
+
+
 def _format_price_alert(data: dict) -> tuple[str, list[str], discord.Color, str]:
     """Build CV2 title, lines, color, footer from a price alert dict."""
     token = data.get("token_id", "unknown")
@@ -208,6 +234,9 @@ async def _dispatch_alert(bot: commands.Bot, data: dict) -> None:
         pro_view = build_cv2(title=pro_title, lines=pro_lines, color=pro_color, footer=pro_footer)
     elif alert_type == "price":
         title, lines, color, footer = _format_price_alert(data)
+        fallback_view = build_cv2(title=title, lines=lines, color=color, footer=footer)
+    elif alert_type == "accumulation":
+        title, lines, color, footer = _format_accumulation_alert(data)
         fallback_view = build_cv2(title=title, lines=lines, color=color, footer=footer)
     else:
         return  # portfolio alerts not pushed to Discord

@@ -393,6 +393,82 @@ class AlertDelivery(Base):
         )
 
 
+class WalletPosition(Base):
+    """
+    Running P&L tracker for a tracked wallet + token combination.
+
+    Uses a weighted-average cost basis (WACB) approach:
+    - BUY  → update avg_cost_usd and total_bought_usd / total_bought_token
+    - SELL → realize P&L against current avg_cost, update total_sold_*
+
+    token_key sentinel: token_address.lower() for ERC-20 tokens, or
+    "NATIVE:{SYMBOL}" (e.g. "NATIVE:ETH") for native-coin transfers
+    so the unique constraint never contains NULL.
+    """
+
+    __tablename__ = "wallet_positions"
+    __table_args__ = (
+        UniqueConstraint("wallet_address", "chain", "token_key", name="uq_position"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    token_key: Mapped[str] = mapped_column(String(50), nullable=False)   # sentinel key
+    token_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True)
+
+    # Cost basis
+    avg_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_bought_token: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_bought_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Realized P&L
+    total_sold_token: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_sold_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    realized_pnl_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    tx_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_updated: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<WalletPosition {self.chain}:{self.wallet_address[:8]} "
+            f"{self.token_key} pnl={self.realized_pnl_usd:,.2f}>"
+        )
+
+
+class AccumulationEvent(Base):
+    """
+    Fired when a tracked wallet buys the same token >= 3 times
+    in a 24-hour window with total volume >= $50 K.
+
+    A 6-hour cooldown prevents the same wallet+token pair from
+    re-firing until the pattern resets.
+    """
+
+    __tablename__ = "accumulation_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    token_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True, index=True)
+    buy_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_per_tx_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    window_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    fired_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<AccumulationEvent {self.chain}:{self.wallet_address[:8]} "
+            f"{self.token_symbol} buys={self.buy_count} ${self.total_usd:,.0f}>"
+        )
+
+
 class SeenTransaction(Base):
     """
     Lightweight deduplication table — stores tx_hash+chain of every transaction
@@ -429,6 +505,7 @@ async def init_db() -> None:
             ("portfolio_snapshots", "taken_at"),
             ("twitter_posts",       "posted_at"),
             ("alert_deliveries",    "delivered_at"),
+            ("accumulation_events", "fired_at"),
         ]:
             await conn.execute(text(
                 f"SELECT create_hypertable('{table}', '{time_col}', "

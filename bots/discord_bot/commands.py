@@ -16,6 +16,8 @@ Command groups
                                            /price_alert_delete, /price_alert_toggle
   Info            (cmd_info.py)          — /chains, /status
   Help            (cmd_help.py)          — /help
+  P&L             (cmd_pnl.py)           — /wallet_pnl
+  Accumulation    (cmd_accumulation.py)  — /accumulation_alerts
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from .cmd_help import setup_help
 from .cmd_twitter import setup_twitter
 from .cmd_alert_channels import setup_alert_channels
 from .cmd_admin import setup_admin
+from .cmd_pnl import setup_pnl
+from .cmd_accumulation import setup_accumulation
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -44,3 +48,5 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_twitter(bot)
     setup_alert_channels(bot)
     setup_admin(bot)
+    setup_pnl(bot)
+    setup_accumulation(bot)

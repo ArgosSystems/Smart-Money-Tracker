@@ -47,7 +47,9 @@ from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
 from api.events.dispatcher import event_dispatcher
-from api.events.types import WhaleAlertEvent
+from api.events.types import AccumulationAlertEvent, WhaleAlertEvent
+from api.services.position_tracker import update_position
+from api.services.accumulation_detector import check_accumulation
 from config.chains import CHAINS, ChainConfig, active_chains
 from config.settings import settings
 
@@ -315,7 +317,27 @@ class EvmChainScanner(BaseChainScanner):
                     "[%s] block %d → %d new whale alert(s)",
                     self.chain_name, block_number, len(new_alerts)
                 )
-                # Broadcast to all registered plugins (WebSocket, Twitter, etc.)
+
+                # ── Phase 2: P&L + accumulation (second commit) ───────────────
+                accumulation_events: list = []
+                for alert in new_alerts:
+                    try:
+                        await update_position(db, alert, wallet_map)
+                    except Exception as exc:
+                        logger.warning("[%s] position update failed: %s", self.chain_name, exc)
+                    try:
+                        acc_event = await check_accumulation(db, alert, wallet_map)
+                        if acc_event:
+                            accumulation_events.append((alert, acc_event))
+                    except Exception as exc:
+                        logger.warning("[%s] accumulation check failed: %s", self.chain_name, exc)
+                try:
+                    await db.commit()
+                except Exception as exc:
+                    logger.warning("[%s] phase-2 commit failed: %s", self.chain_name, exc)
+                    await db.rollback()
+
+                # ── Broadcast whale alerts ────────────────────────────────────
                 for alert in new_alerts:
                     wallet = wallet_map.get(alert.from_address) or wallet_map.get(alert.to_address)
                     await event_dispatcher.dispatch(WhaleAlertEvent(
@@ -342,6 +364,26 @@ class EvmChainScanner(BaseChainScanner):
                             "from_smart_label_tier": alert.from_smart_label_tier if hasattr(alert, 'from_smart_label_tier') else None,
                             "to_smart_label_name":   alert.to_smart_label_name if hasattr(alert, 'to_smart_label_name') else None,
                             "to_smart_label_tier":   alert.to_smart_label_tier if hasattr(alert, 'to_smart_label_tier') else None,
+                        },
+                    ))
+
+                # ── Broadcast accumulation alerts ─────────────────────────────
+                for trigger_alert, acc_event in accumulation_events:
+                    wallet = wallet_map.get(acc_event.wallet_address) or wallet_map.get(trigger_alert.from_address)
+                    await event_dispatcher.dispatch(AccumulationAlertEvent(
+                        alert_id=acc_event.id,
+                        chain=acc_event.chain,
+                        timestamp=acc_event.fired_at or datetime.datetime.utcnow(),
+                        metadata={
+                            "accumulation_id": acc_event.id,
+                            "wallet_address":  acc_event.wallet_address,
+                            "token_symbol":    acc_event.token_symbol,
+                            "token_address":   acc_event.token_address,
+                            "buy_count":       acc_event.buy_count,
+                            "total_usd":       acc_event.total_usd,
+                            "avg_per_tx_usd":  acc_event.avg_per_tx_usd,
+                            "window_hours":    acc_event.window_hours,
+                            "wallet_label":    wallet.label if wallet else None,
                         },
                     ))
 

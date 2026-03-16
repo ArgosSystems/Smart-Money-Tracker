@@ -83,3 +83,25 @@ class PortfolioAlertEvent(AlertDTO):
     """
 
     alert_type: AlertType = field(default=AlertType.PORTFOLIO, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AccumulationAlertEvent(AlertDTO):
+    """
+    Fired when a wallet accumulates the same token >= 3 times in 24 h
+    and total buy volume exceeds $50 K.
+
+    Expected metadata keys
+    ----------------------
+    wallet_address   : str
+    token_symbol     : str
+    token_address    : str | None
+    buy_count        : int     — number of buys in the window
+    total_usd        : float   — total USD volume in the window
+    window_hours     : int     — look-back window (always 24)
+    avg_per_tx_usd   : float   — total_usd / buy_count
+    accumulation_id  : int     — FK to accumulation_events.id
+    wallet_label     : str | None
+    """
+
+    alert_type: AlertType = field(default=AlertType.ACCUMULATION, init=False)

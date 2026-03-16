@@ -2,10 +2,12 @@
 # Smart Money Tracker - Docker Compose
 # =============================================
 # Usage:
-#   docker-compose up -d              # Start in background
-#   docker-compose up -d --telegram   # Use Telegram bot instead of Discord
-#   docker-compose logs -f            # View logs
-#   docker-compose down               # Stop and remove containers
+#   docker compose up -d        # Start all services
+#   docker compose logs -f      # Tail logs
+#   docker compose down         # Stop and remove containers
+#   docker compose pull         # Pull latest images
+#
+# Before starting: copy .env.example → .env and fill in your tokens.
 
 version: "3.8"
 
@@ -16,20 +18,20 @@ services:
     container_name: smart-money-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: smart_money
-      POSTGRES_PASSWORD: smart_money
-      POSTGRES_DB: smart_money
+      POSTGRES_USER: ${POSTGRES_USER:-smart_money}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smart_money}
+      POSTGRES_DB: ${POSTGRES_DB:-smart_money}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"   # local-only — not exposed to internet
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smart_money"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smart_money}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── Smart Money Tracker API ────────────────────────────────────────────────
+  # ── Smart Money Tracker (API + Discord bot) ────────────────────────────────
   smart-money-tracker:
     build:
       context: .
@@ -41,28 +43,19 @@ services:
         condition: service_healthy
     ports:
       - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
     environment:
-      # Blockchain RPC
-      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
-      - HELIUS_API_KEY=${HELIUS_API_KEY:-}
-
-      # Bot tokens
-      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
-
-      # Configuration
-      - WHALE_THRESHOLD_USD=${WHALE_THRESHOLD_USD:-10000}
+      # Database — always points to the db service inside Docker network
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-smart_money}:${POSTGRES_PASSWORD:-smart_money}@db:5432/${POSTGRES_DB:-smart_money}
       - API_HOST=0.0.0.0
       - API_PORT=8000
-
-      # Database — PostgreSQL + TimescaleDB
-      - DATABASE_URL=postgresql+asyncpg://smart_money:smart_money@db:5432/smart_money
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
     command: ["python", "start.py"]
 
   # ── Optional: Telegram Bot Variant ──────────────────────────────────────────

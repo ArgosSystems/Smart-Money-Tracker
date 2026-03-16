@@ -24,6 +24,7 @@ class AlertType(str, Enum):
     WHALE = "whale"
     PRICE = "price"
     PORTFOLIO = "portfolio"
+    ACCUMULATION = "accumulation"
 
 
 @dataclass(frozen=True, slots=True)

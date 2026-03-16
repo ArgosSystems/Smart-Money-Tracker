@@ -21,7 +21,7 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from api.models import TrackedWallet, WhaleAlert, get_db
+from api.models import AccumulationEvent, TrackedWallet, WhaleAlert, get_db
 from api.services.broadcaster import alert_broadcaster
 
 router = APIRouter(prefix="/api/v1", tags=["Alerts"])
@@ -123,6 +123,49 @@ async def get_token_alerts(
 
     result = await db.execute(query)
     return [_to_response(a) for a in result.scalars().all()]
+
+
+# ── Accumulation alerts ───────────────────────────────────────────────────────
+
+class AccumulationResponse(BaseModel):
+    id: int
+    wallet_address: str
+    chain: str
+    token_symbol: Optional[str]
+    token_address: Optional[str]
+    buy_count: int
+    total_usd: float
+    avg_per_tx_usd: float
+    window_hours: int
+    fired_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("fired_at")
+    def serialize_fired_at(self, v: datetime.datetime) -> str:
+        return v.isoformat() if v else ""
+
+
+@router.get(
+    "/alerts/accumulations",
+    response_model=list[AccumulationResponse],
+    summary="Recent accumulation pattern alerts",
+)
+async def get_accumulation_alerts(
+    limit: int = Query(default=20, le=100),
+    chain: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[AccumulationEvent]:
+    """Return accumulation pattern alerts — wallets repeatedly buying the same token."""
+    query = (
+        select(AccumulationEvent)
+        .order_by(desc(AccumulationEvent.fired_at))
+        .limit(limit)
+    )
+    if chain:
+        query = query.where(AccumulationEvent.chain == chain.lower())
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
