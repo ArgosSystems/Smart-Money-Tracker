@@ -47,9 +47,9 @@ _portfolio_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     global _tracker_task, _price_checker_task, _portfolio_task
 
+    await init_db()
     logger.info("Running database migration (safe on fresh DB)…")
     await migrate_db()
-    await init_db()
 
     logger.info("Starting MultiChainTracker…")
     tracker = MultiChainTracker()
