@@ -69,7 +69,7 @@ TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523
 # ── Price cache with TTL ──────────────────────────────────────────────────────
 
 class _PriceCache:
-    TTL = 60.0  # seconds
+    TTL = 300.0  # seconds — 5 min keeps CoinGecko free tier happy (30 calls/min limit)
 
     def __init__(self) -> None:
         self._data: dict[str, tuple[float, float]] = {}   # key → (price, expires_at)
