@@ -499,19 +499,25 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with engine.begin() as conn:
-        for table, time_col in [
-            ("whale_alerts",        "detected_at"),
-            ("portfolio_snapshots", "taken_at"),
-            ("twitter_posts",       "posted_at"),
-            ("alert_deliveries",    "delivered_at"),
-            ("accumulation_events", "fired_at"),
-        ]:
-            await conn.execute(text(
-                f"SELECT create_hypertable('{table}', '{time_col}', "
-                f"if_not_exists => TRUE, migrate_data => TRUE)"
-            ))
-        logger.info("TimescaleDB hypertables ready.")
+    for table, time_col in [
+        ("whale_alerts",        "detected_at"),
+        ("portfolio_snapshots", "taken_at"),
+        ("twitter_posts",       "posted_at"),
+        ("alert_deliveries",    "delivered_at"),
+        ("accumulation_events", "fired_at"),
+    ]:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    f"SELECT create_hypertable('{table}', '{time_col}', "
+                    f"if_not_exists => TRUE, migrate_data => TRUE)"
+                ))
+            logger.info("TimescaleDB hypertable ready: %s", table)
+        except Exception as exc:
+            logger.warning(
+                "Could not create hypertable for %s (non-fatal, data still works): %s",
+                table, exc
+            )
 
 
 async def migrate_db() -> None:
