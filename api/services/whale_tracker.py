@@ -563,24 +563,26 @@ class EvmChainScanner(BaseChainScanner):
             return result
 
         platform = self.config.coingecko_platform
-        joined   = ",".join(missing)
-        url      = (
-            f"https://api.coingecko.com/api/v3/simple/token_price/{platform}"
-            f"?contract_addresses={joined}&vs_currencies=usd"
-        )
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                data = resp.json()
-            for addr in missing:
-                price = data.get(addr.lower(), {}).get("usd", 0.0)
-                self._price_cache.set(addr, price)
-                result[addr] = price
-        except Exception as exc:
-            logger.warning("[%s] CoinGecko price fetch failed: %s", self.chain_name, exc)
-            for addr in missing:
-                result[addr] = 0.0
+        BATCH_SIZE = 10
+        async with httpx.AsyncClient(timeout=10) as client:
+            for i in range(0, len(missing), BATCH_SIZE):
+                batch = missing[i : i + BATCH_SIZE]
+                url = (
+                    f"https://api.coingecko.com/api/v3/simple/token_price/{platform}"
+                    f"?contract_addresses={','.join(batch)}&vs_currencies=usd"
+                )
+                try:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    for addr in batch:
+                        price = data.get(addr.lower(), {}).get("usd", 0.0)
+                        self._price_cache.set(addr, price)
+                        result[addr] = price
+                except Exception as exc:
+                    logger.warning("[%s] CoinGecko price fetch failed: %s", self.chain_name, exc)
+                    for addr in batch:
+                        result[addr] = 0.0
 
         return result
 
