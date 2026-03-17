@@ -23,6 +23,15 @@ from api.events.protocol import AlertDTO, AlertType
 
 logger = logging.getLogger(__name__)
 
+
+def _brand_sig() -> str:
+    """One-line brand signature appended to every tweet."""
+    try:
+        from config.settings import settings  # noqa: PLC0415
+        return f"— {settings.brand_name}"
+    except Exception:
+        return "— Smart Money Tracker"
+
 MAX_TWEET_LENGTH = 280
 
 
@@ -154,32 +163,40 @@ class TweetRenderer:
         symbol = meta.get("token_symbol", "???")
         direction = meta.get("direction", "SEND")
 
-        # Entity-first formatting: use label if available
-        from_label = meta.get("from_label") or short_addr(meta.get("from_address", "???"))
-        to_label = meta.get("to_label") or short_addr(meta.get("to_address", "???"))
+        from_label = (
+            meta.get("from_smart_label_name")
+            or meta.get("from_label")
+            or short_addr(meta.get("from_address", "???"))
+        )
+        to_label = (
+            meta.get("to_smart_label_name")
+            or meta.get("to_label")
+            or short_addr(meta.get("to_address", "???"))
+        )
 
         tx_hash = meta.get("tx_hash", "")
         tx_url = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
+        action = {"BUY": "bought", "SELL": "sold", "SEND": "moved"}.get(direction, "transferred")
 
         if score > 80:
-            # Critical tier
             tweet = (
-                f"🚨 WHALE ALERT\n\n"
-                f"{de} {from_label} → {to_label}\n"
-                f"💰 {amount} {symbol} ({usd})\n"
-                f"{ce} {chain}\n"
+                f"🚨 Whale Alert  {ce} {chain}\n\n"
+                f"{de} {direction}  ·  {symbol}  ·  {usd}\n"
+                f"📦 {amount} {symbol}\n"
+                f"👤 {from_label} → {to_label}"
             )
         else:
-            # Standard tier
-            action = {"BUY": "bought", "SELL": "sold", "SEND": "moved"}.get(direction, "transferred")
             tweet = (
-                f"🐋 {from_label} {action} {amount} {symbol} ({usd}) "
-                f"on {ce} {chain}\n"
+                f"🐋 Whale Alert  {ce} {chain}\n\n"
+                f"{from_label} {action} {amount} {symbol} ({usd})\n"
+                f"👤 → {to_label}"
             )
 
         if tx_url:
             tweet += f"\n🔗 {tx_url}"
 
+        tweet += f"\n\n{_brand_sig()}"
+        tweet += f"\n#WhaleAlert #{chain} #OnChain #DeFi"
         return tweet
 
     def _render_price(self, event: AlertDTO, score: float) -> str:
@@ -192,19 +209,25 @@ class TweetRenderer:
         chain = event.chain.capitalize()
         ce = chain_emoji(event.chain)
 
-        rockets = _rocket_emojis(abs(pct_change))
-        direction_word = "above" if condition == "above" else "below"
+        direction_word = "broke above" if condition == "above" else "dropped below"
+        rockets = _rocket_emojis(abs(pct_change)) if condition == "above" else "📉"
 
-        tweet = f"🎯 {symbol} hit ${current:,.4f} ({direction_word} ${target:,.4f}) on {ce} {chain}"
+        tweet = (
+            f"🎯 Price Alert  {ce} {chain}\n\n"
+            f"{rockets} {symbol} {direction_word} ${target:,.4f}\n"
+            f"💵 Now: ${current:,.4f}  ·  Target: ${target:,.4f}"
+        )
 
         if pct_change:
             sign = "+" if pct_change > 0 else ""
-            tweet += f"\n{rockets} {sign}{pct_change:.1f}% in 24h"
+            tweet += f"\n📊 24h: {sign}{pct_change:.1f}%"
 
         label = meta.get("label")
         if label:
             tweet += f"\n📝 {label}"
 
+        tweet += f"\n\n{_brand_sig()}"
+        tweet += f"\n#{symbol} #{chain} #PriceAlert #Crypto"
         return tweet
 
     def _render_accumulation(self, event: AlertDTO, score: float) -> str:
@@ -220,9 +243,11 @@ class TweetRenderer:
         ce = chain_emoji(event.chain)
 
         tweet = (
-            f"🔁 Accumulation detected on {ce} {chain}\n\n"
-            f"👛 {wallet_label} bought {symbol} {buy_count}× in {window_hours}h\n"
-            f"💰 Total: {total_usd}  |  Avg: {avg_usd}/tx"
+            f"🔁 Accumulation Alert  {ce} {chain}\n\n"
+            f"👤 {wallet_label} bought {symbol} {buy_count}× in {window_hours}h\n"
+            f"💰 Total: {total_usd}  ·  Avg/tx: {avg_usd}\n\n"
+            f"{_brand_sig()}\n"
+            f"#{symbol} #{chain} #SmartMoney #OnChain #DeFi"
         )
         return tweet
 
@@ -238,14 +263,17 @@ class TweetRenderer:
         total_usd = fmt_usd(meta.get("current_total_usd", 0.0))
         symbol = meta.get("native_symbol", "")
         chain = event.chain.capitalize()
+        ce = chain_emoji(event.chain)
 
         direction = "📈" if change_pct >= 0 else "📉"
         sign = "+" if change_pct >= 0 else ""
 
         tweet = (
-            f"{direction} Smart Money wallet update on {chain}\n\n"
-            f"💰 {sign}{change_pct:.1f}% ({sign}{fmt_usd(abs(change_usd))})\n"
-            f"📊 Total: {total_usd} {symbol}"
+            f"{direction} Portfolio Update  {ce} {chain}\n\n"
+            f"💼 {sign}{change_pct:.1f}%  ({sign}{fmt_usd(abs(change_usd))})\n"
+            f"📊 Total: {total_usd} {symbol}\n\n"
+            f"{_brand_sig()}\n"
+            f"#{chain} #Portfolio #SmartMoney #DeFi"
         )
         return tweet
 
