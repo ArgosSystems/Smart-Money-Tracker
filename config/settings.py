@@ -70,6 +70,7 @@ class TwitterConfig(BaseSettings):
     enable_whale_tweets: bool = True
     enable_price_tweets: bool = True
     enable_portfolio_tweets: bool = False   # default OFF for privacy
+    enable_accumulation_tweets: bool = True
 
     # Circuit breaker
     circuit_failure_threshold: int = 3

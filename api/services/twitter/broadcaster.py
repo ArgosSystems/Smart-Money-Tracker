@@ -127,6 +127,7 @@ class TwitterBroadcaster:
           - Whale alerts: check enable_whale_tweets flag
           - Price alerts: check enable_price_tweets flag
           - Portfolio alerts: check enable_portfolio_tweets flag AND is_public
+          - Accumulation alerts: check enable_accumulation_tweets flag
         """
         try:
             # Feature flag check
@@ -165,6 +166,8 @@ class TwitterBroadcaster:
             if not cfg.enable_portfolio_tweets:  # type: ignore[attr-defined]
                 return False
             return event.metadata.get("is_public", False)
+        elif event.alert_type == AlertType.ACCUMULATION:
+            return cfg.enable_accumulation_tweets  # type: ignore[attr-defined]
         return False
 
     def _handle_overflow(self, new_item: ScoredAlert) -> None:
@@ -364,6 +367,11 @@ class TwitterBroadcaster:
             symbol = meta.get("token_symbol")
             if symbol:
                 return f"token:{symbol.upper()}"
+        elif event.alert_type == AlertType.ACCUMULATION:
+            addr = meta.get("wallet_address")
+            symbol = meta.get("token_symbol")
+            if addr and symbol:
+                return f"accum:{addr.lower()}:{symbol.upper()}"
         return None
 
     # ── Observability ──────────────────────────────────────────────────────────
@@ -381,5 +389,6 @@ class TwitterBroadcaster:
                 "whale_tweets": self._config.enable_whale_tweets,  # type: ignore[attr-defined]
                 "price_tweets": self._config.enable_price_tweets,  # type: ignore[attr-defined]
                 "portfolio_tweets": self._config.enable_portfolio_tweets,  # type: ignore[attr-defined]
+                "accumulation_tweets": self._config.enable_accumulation_tweets,  # type: ignore[attr-defined]
             },
         }

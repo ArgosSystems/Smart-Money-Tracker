@@ -102,6 +102,8 @@ class TweetRenderer:
             text = self._render_price(event, score)
         elif event.alert_type == AlertType.PORTFOLIO:
             text = self._render_portfolio(event, score)
+        elif event.alert_type == AlertType.ACCUMULATION:
+            text = self._render_accumulation(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
 
@@ -203,6 +205,25 @@ class TweetRenderer:
         if label:
             tweet += f"\n📝 {label}"
 
+        return tweet
+
+    def _render_accumulation(self, event: AlertDTO, score: float) -> str:
+        meta = event.metadata
+        wallet = meta.get("wallet_address", "")
+        wallet_label = meta.get("wallet_label") or short_addr(wallet)
+        symbol = meta.get("token_symbol", "???")
+        buy_count = meta.get("buy_count", 0)
+        total_usd = fmt_usd(meta.get("total_usd", 0.0))
+        window_hours = meta.get("window_hours", 24)
+        avg_usd = fmt_usd(meta.get("avg_per_tx_usd", 0.0))
+        chain = event.chain.capitalize()
+        ce = chain_emoji(event.chain)
+
+        tweet = (
+            f"🔁 Accumulation detected on {ce} {chain}\n\n"
+            f"👛 {wallet_label} bought {symbol} {buy_count}× in {window_hours}h\n"
+            f"💰 Total: {total_usd}  |  Avg: {avg_usd}/tx"
+        )
         return tweet
 
     def _render_portfolio(self, event: AlertDTO, score: float) -> str:

@@ -70,13 +70,14 @@ def setup_twitter(bot: commands.Bot) -> None:
             whale = "On" if features.get("whale_tweets") else "Off"
             price = "On" if features.get("price_tweets") else "Off"
             portfolio = "On" if features.get("portfolio_tweets") else "Off"
+            accumulation = "On" if features.get("accumulation_tweets") else "Off"
 
             lines = [
                 f"**Mode:** {mode}  |  **Running:** {running}",
                 f"**Queue Depth:** {queue_depth} alerts pending",
                 f"**Budget:** {remaining_day}/{daily_budget} today  |  {remaining_hour}/{hourly_cap} this hour",
                 f"**Circuit Breaker:** {cb_state} ({cb_failures} consecutive failures)",
-                f"**Features:** Whale={whale}  |  Price={price}  |  Portfolio={portfolio}",
+                f"**Features:** Whale={whale}  |  Price={price}  |  Portfolio={portfolio}  |  Accumulation={accumulation}",
             ]
 
             # Fetch recent tweets
