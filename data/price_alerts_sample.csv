@@ -1,0 +1,10 @@
+chain,token_address,token_symbol,condition,target_price_usd,label
+ethereum,0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2,WETH,above,4000,ETH breakout $4K
+ethereum,0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2,WETH,below,2800,ETH support $2.8K
+ethereum,0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9,AAVE,above,200,AAVE $200 target
+ethereum,0x1f9840a85d5af5bf1d1762f925bdaddc4201f984,UNI,above,15,UNI $15 breakout
+ethereum,0x1f9840a85d5af5bf1d1762f925bdaddc4201f984,UNI,below,7,UNI $7 support
+ethereum,0x6b175474e89094c44da98b954eedeac495271d0f,DAI,below,0.99,DAI depeg warning
+base,0x4200000000000000000000000000000000000006,WETH,above,4000,Base ETH $4K
+arbitrum,0x912ce59144191c1204e64559fe8253a0e49e6548,ARB,above,1.5,ARB $1.5 target
+arbitrum,0x912ce59144191c1204e64559fe8253a0e49e6548,ARB,below,0.80,ARB $0.80 support
