@@ -56,12 +56,15 @@ async def check_accumulation(
 
     window_start = datetime.datetime.utcnow() - datetime.timedelta(hours=_WINDOW_HOURS)
 
-    # Build filter for matching buys of this token by this wallet in the window
+    # Build filter for matching buys of this token by this wallet in the window.
+    # On BUY direction the tracked wallet is the *receiver* (to_address), because
+    # direction = "SELL" if from_addr in wallet_set else "BUY" — so on a BUY the
+    # tracked wallet is the to_address, not the from_address.
     base_filter = and_(
-        WhaleAlert.from_address == wallet_address,
-        WhaleAlert.chain        == chain,
-        WhaleAlert.direction    == "BUY",
-        WhaleAlert.detected_at  >= window_start,
+        WhaleAlert.to_address  == wallet_address,
+        WhaleAlert.chain       == chain,
+        WhaleAlert.direction   == "BUY",
+        WhaleAlert.detected_at >= window_start,
     )
     if token_address:
         token_filter = WhaleAlert.token_address == token_address

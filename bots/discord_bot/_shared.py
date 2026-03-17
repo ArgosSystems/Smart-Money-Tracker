@@ -219,6 +219,8 @@ def build_cv2(
     items: list[Any] = [_TextDisplay(f"## {title}")]
 
     for line in lines or []:
+        if not line:  # Discord rejects empty TextDisplay content
+            continue
         items.append(_Separator(spacing=_SeparatorSpacing.small))
         items.append(_TextDisplay(line))
 

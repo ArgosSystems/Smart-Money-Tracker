@@ -244,10 +244,12 @@ async def _dispatch_alert(bot: commands.Bot, data: dict) -> None:
     # Fetch active channel configs from API
     channels = await api_get("/alert-channels/active")
     if not isinstance(channels, list) or not channels:
+        logger.warning("Auto-push: no active channels configured — alert dropped")
         return
 
     # Format the alert based on type
     alert_type = data.get("alert_type", "whale")
+    logger.info("Auto-push: received alert_type=%s score=%s", alert_type, data.get("priority_score"))
 
     free_view, pro_view, fallback_view = None, None, None
 
@@ -267,6 +269,10 @@ async def _dispatch_alert(bot: commands.Bot, data: dict) -> None:
 
     for cfg in channels:
         if not _matches_channel_config(data, cfg):
+            logger.debug(
+                "Auto-push: alert_type=%s filtered out for channel %s (min_score=%s alert_types=%s chains=%s)",
+                alert_type, cfg.get("channel_id"), cfg.get("min_score"), cfg.get("alert_types"), cfg.get("chains"),
+            )
             continue
 
         channel_id = int(cfg["channel_id"])
