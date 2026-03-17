@@ -64,6 +64,12 @@ class TwitterClient:
                 "tweepy is not installed. Run: pip install tweepy[async]"
             ) from exc
 
+        if not hasattr(tweepy, "AsyncClient"):
+            raise TwitterClientError(
+                f"tweepy {tweepy.__version__} is too old — AsyncClient requires tweepy>=4.0. "
+                "Rebuild the Docker image: docker compose build --no-cache"
+            )
+
         self._client = tweepy.AsyncClient(
             consumer_key=self._api_key,
             consumer_secret=self._api_secret,
