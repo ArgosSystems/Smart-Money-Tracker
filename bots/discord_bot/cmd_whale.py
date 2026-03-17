@@ -248,7 +248,7 @@ def setup_whale(bot: commands.Bot) -> None:
             status = "🟢 Active" if is_active else "⚪ Paused"
             label_str = f" **{label}**" if label else ""
             lines.append(
-                f"{CHAIN_EMOJI.get(cname, '')} `{short_addr(addr)}`{label_str} - {chain_badge(cname)} - {status}"
+                f"{CHAIN_EMOJI.get(cname, '')} {chain_badge(cname)} - {status}{label_str}\n`{addr}`"
             )
         await cv2_send(
             interaction,
