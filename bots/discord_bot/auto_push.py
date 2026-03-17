@@ -157,9 +157,9 @@ def _format_accumulation_alert(data: dict) -> tuple[str, list[str], discord.Colo
 
 def _format_price_alert(data: dict) -> tuple[str, list[str], discord.Color, str]:
     """Build CV2 title, lines, color, footer from a price alert dict."""
-    token = data.get("token_id", "unknown")
-    price = data.get("current_price", 0.0)
-    target = data.get("target_price", 0.0)
+    token = data.get("token_symbol") or data.get("token_id", "unknown")
+    price = data.get("current_price_usd") or data.get("current_price", 0.0)
+    target = data.get("target_price_usd") or data.get("target_price", 0.0)
     condition = data.get("condition", "above")
     pct_change = data.get("pct_change_24h", 0.0)
 
