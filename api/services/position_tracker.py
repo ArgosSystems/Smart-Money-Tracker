@@ -57,7 +57,10 @@ async def update_position(
     Returns the updated WalletPosition, or None if the direction is SEND
     (no cost-basis impact) or the wallet cannot be identified.
     """
-    if alert.direction not in ("BUY", "SELL"):
+    # SEND (native ETH out of a tracked wallet) is treated as a disposal —
+    # same P&L math as SELL.  The whale alert keeps "SEND" for display purposes
+    # but the position must record the outflow to show correct realized P&L.
+    if alert.direction not in ("BUY", "SELL", "SEND"):
         return None
 
     # Identify the wallet address that belongs to us
@@ -105,7 +108,7 @@ async def update_position(
         pos.total_bought_token += amount_token
         pos.total_bought_usd   += amount_usd
 
-    else:  # SELL
+    else:  # SELL or SEND — both are disposals that realize P&L
         realized = (price_per_token - pos.avg_cost_usd) * amount_token
         pos.realized_pnl_usd  += realized
         pos.total_sold_token  += amount_token
