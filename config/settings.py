@@ -144,6 +144,11 @@ class Settings(BaseSettings):
     # ── Twitter / X broadcasting ───────────────────────────────────────────────
     twitter: TwitterConfig = TwitterConfig()
 
+    # ── Branding (shown in every Discord alert footer) ────────────────────────
+    brand_discord_invite: str = ""   # e.g. https://discord.gg/xxxxx
+    brand_github_url: str = ""       # e.g. https://github.com/yourname/repo
+    brand_name: str = "Smart Money Tracker"
+
     # ── Derived helpers ───────────────────────────────────────────────────────
 
     @property

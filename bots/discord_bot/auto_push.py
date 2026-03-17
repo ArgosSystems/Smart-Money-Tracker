@@ -46,6 +46,18 @@ _push_task: asyncio.Task | None = None
 _MAX_BACKOFF = 60  # seconds
 
 
+def _branding_footer(prefix: str = "") -> str:
+    """Build a footer string with optional branding links."""
+    parts = [prefix] if prefix else []
+    if settings.brand_discord_invite:
+        parts.append(f"[Join Discord]({settings.brand_discord_invite})")
+    if settings.brand_github_url:
+        parts.append(f"[GitHub]({settings.brand_github_url})")
+    if not parts:
+        return settings.brand_name
+    return " · ".join(parts)
+
+
 def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str], discord.Color, str]:
     """Build CV2 title, lines, color, footer from a whale alert dict."""
     chain = data.get("chain", "ethereum")
@@ -104,7 +116,7 @@ def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str],
 
     color = COLOR_BUY if direction == "BUY" else COLOR_SELL if direction == "SELL" else COLOR_INFO
     title = f"Whale Alert — {chain_badge(chain)}"
-    footer = f"Score: {score:.0f} | Smart Money Tracker"
+    footer = _branding_footer(f"Score: {score:.0f} | {settings.brand_name}")
     return title, lines, color, footer
 
 
@@ -130,7 +142,7 @@ def _format_accumulation_alert(data: dict) -> tuple[str, list[str], discord.Colo
         f"Total: {fmt_usd(total)}  |  Avg per tx: {fmt_usd(avg)}",
     ]
     title  = f"Accumulation Alert — {chain_badge(chain)}"
-    footer = "Smart Money Tracker — Accumulation Detection"
+    footer = _branding_footer(f"{settings.brand_name} — Accumulation Detection")
     return title, lines, COLOR_BUY, footer
 
 
@@ -152,7 +164,7 @@ def _format_price_alert(data: dict) -> tuple[str, list[str], discord.Color, str]
         lines.append(f"**24h Change:** {pct_change:+.2f}%")
 
     color = COLOR_BUY if condition == "above" else COLOR_SELL
-    return f"Price Alert — {token.upper()}", lines, color, "Smart Money Tracker"
+    return f"Price Alert — {token.upper()}", lines, color, _branding_footer(settings.brand_name)
 
 
 def _matches_channel_config(data: dict, channel_cfg: dict) -> bool:
