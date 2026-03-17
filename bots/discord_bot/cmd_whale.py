@@ -57,13 +57,19 @@ def setup_whale(bot: commands.Bot) -> None:
             await cv2_error(interaction, "Failed to track wallet", err or "Unknown error.")
             return
         cname = data.get("chain", chain_value)
+        label_updated = data.get("label_updated", False)
         lines = [f"**Address:** `{data['address']}`"]
         if data.get("label"):
             lines.append(f"**Label:** {data['label']}")
         lines += [f"**Chain:** {chain_badge(cname)}", "**Status:** Active"]
+        title = (
+            f"Label updated on {chain_badge(cname)}"
+            if label_updated
+            else f"Wallet tracked on {chain_badge(cname)}"
+        )
         await cv2_send(
             interaction,
-            title=f"Wallet tracked on {chain_badge(cname)}",
+            title=title,
             lines=lines,
             color=chain_color(cname),
             footer=f"ID: {data['id']} - Smart Money Tracker",

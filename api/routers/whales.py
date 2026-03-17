@@ -73,6 +73,7 @@ class WalletResponse(BaseModel):
     label: Optional[str]
     is_active: bool
     last_checked_block: Optional[int]
+    label_updated: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -125,12 +126,21 @@ async def track_wallet(
         )
     )
     if existing:
+        updated = False
+        label_updated = False
         if not existing.is_active:
             existing.is_active = True
-            existing.label = payload.label or existing.label
+            updated = True
+        if payload.label and payload.label != existing.label:
+            existing.label = payload.label
+            updated = True
+            label_updated = True
+        if updated:
             await db.commit()
             await db.refresh(existing)
-        return WalletResponse.model_validate(existing)
+        result = WalletResponse.model_validate(existing)
+        result.label_updated = label_updated
+        return result
 
     wallet = TrackedWallet(
         address=payload.address,
