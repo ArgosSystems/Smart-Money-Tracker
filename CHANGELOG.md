@@ -5,6 +5,33 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-03-17
+
+### Added
+
+#### Bulk Price Alert Import 📥
+- **`data/import_price_alerts.py`** — CLI tool to bulk-import price alert rules from a CSV file; reads `chain,token_address,token_symbol,condition,target_price_usd,label` rows and POSTs each to the API; skips duplicates (409) and invalid rows with a summary at the end
+  - Usage: `python data/import_price_alerts.py data/my_alerts.csv`
+  - `--dry-run` flag — previews what would be created without making any API calls
+  - `--api-url` flag — target a remote API instance
+- **`data/generate_price_alerts.py`** — auto-generates price alerts from CoinGecko top-N tokens for any chain; creates `above` (+X%) and `below` (−X%) alerts relative to the current price
+  - `--chain` — target chain (ethereum, base, arbitrum, bsc, polygon, optimism)
+  - `--count` — number of top tokens to process (default: 20)
+  - `--above / --below` — percentage thresholds (default: ±15%)
+  - `--only above|below` — generate only one direction
+  - `--dry-run` — preview without creating
+- **`data/top_eth_alerts.csv`** — 45 hand-curated price alerts covering ETH, WBTC, AAVE, UNI, CRV, COMP, LINK, MKR, BAL, YFI, DAI/USDC/USDT depeg, APE, AXS, SHIB, PEPE, LPT, ENS, PENDLE, rETH on Ethereum + ARB/GMX on Arbitrum + WETH on Base + BNB/WBNB on BSC
+
+### Fixed
+
+- **Price fetching switched from CoinGecko to DeFiLlama** — CoinGecko free tier returns 400 Bad Request on token price endpoints and aggressive 429 rate limiting; replaced with `coins.llama.fi` which is free, requires no API key, has no rate limits, and supports all 6 chains. Batch size increased from 10 to 50 addresses per request. Affects both `price_alerts.py` and `whale_tracker.py` (including native ETH price fetch)
+- **`/price_alerts` Discord command crash** — `ValueError: maximum number of children exceeded (40)` when displaying 20+ rules; reduced display limit to 15 rules (each rule = 2 CV2 components) to stay under Discord's 40-child hard limit per Container
+- **`/wallet_pnl` crash on positions with empty lines** — `build_cv2()` passed `""` empty strings to `_TextDisplay`; Discord rejects content of length 0 with HTTP 400. Fixed globally in `_shared.py`: `build_cv2` now skips empty lines
+- **Accumulation detection never firing** — critical bug in `accumulation_detector.py`: on a BUY alert the tracked wallet is always the *receiver* (`to_address`), not the sender. The DB query was filtering on `from_address == wallet_address` which never matched any BUY. Changed to `to_address` — accumulation patterns can now be detected correctly
+- **Auto-push logging gap** — `_dispatch_alert` had no visibility into whether price/accumulation alerts were received or silently filtered; added `INFO` log on every received alert (type + score) and `DEBUG` log when a channel config filter rejects an alert
+
+---
+
 ## [2.3.0] - 2026-03-17
 
 ### Added
@@ -556,7 +583,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.3.0** | **2026-03-17** | **Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes** |
+| **2.4.0** | **2026-03-17** | **Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix** |
+| 2.3.0 | 2026-03-17 | Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes |
 | 2.2.0 | 2026-03-16 | Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening |
 | 2.1.0 | 2026-03-14 | Real-time Discord push notifications, smart entity labeling (80 free / 300 pro), pro/free tier gating |
 | 2.0.0 | 2026-03-14 | Twitter/X auto-broadcasting, typed event dispatcher, priority scoring, rate limiting, circuit breaker |
@@ -579,7 +607,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These features are planned for future releases:
 
-### [2.4.0] - Planned
+### [2.5.0] - Planned
 
 - Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
 - Telegram bot full feature parity with Discord (push notifications, P&L, accumulation)
