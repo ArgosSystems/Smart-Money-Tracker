@@ -46,16 +46,20 @@ _push_task: asyncio.Task | None = None
 _MAX_BACKOFF = 60  # seconds
 
 
-def _branding_footer(prefix: str = "") -> str:
-    """Build a footer string with optional branding links."""
-    parts = [prefix] if prefix else []
+def _branding_line() -> str:
+    """One visible line shown at the bottom of every alert body."""
+    name = settings.brand_name
+    parts: list[str] = []
     if settings.brand_discord_invite:
-        parts.append(f"[Join Discord]({settings.brand_discord_invite})")
+        parts.append(f"[Join]({settings.brand_discord_invite})")
     if settings.brand_github_url:
         parts.append(f"[GitHub]({settings.brand_github_url})")
-    if not parts:
-        return settings.brand_name
-    return " · ".join(parts)
+    links = " · ".join(parts)
+    return f"🤖 *Automated alert by **{name}***" + (f"  —  {links}" if links else "")
+
+
+def _score_footer(score: float) -> str:
+    return f"Priority score: {score:.0f}/100"
 
 
 def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str], discord.Color, str]:
@@ -101,22 +105,26 @@ def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str],
     from_str = f"`{short_addr(from_addr)}`"
     if from_label:
         from_str += f" **({from_label})**"
-        
+
     to_str = f"`{short_addr(to_addr)}`"
     if to_label:
         to_str += f" **({to_label})**"
 
+    color = COLOR_BUY if direction == "BUY" else COLOR_SELL if direction == "SELL" else COLOR_INFO
+    d_emoji = dir_emoji(direction)
+
     lines = [
-        f"{dir_emoji(direction)} **{direction} {symbol}** — {fmt_usd(amount_usd)}  {c_emoji}",
-        f"Amount: {amount_token:.4f} {symbol}",
-        f"From: {from_str} -> {to_str}",
+        f"**{d_emoji} {direction}  ·  {symbol}  ·  {fmt_usd(amount_usd)}** {c_emoji}",
+        f"📦 `{amount_token:,.4f} {symbol}`",
+        f"👤 From: {from_str}",
+        f"📬 To:     {to_str}",
     ]
     if link:
-        lines.append(f"Tx: [{tx_hash[:14]}...]({link}) | Block {block}")
+        lines.append(f"🔗 [View transaction ↗]({link})  ·  Block `{block}`")
+    lines.append(_branding_line())
 
-    color = COLOR_BUY if direction == "BUY" else COLOR_SELL if direction == "SELL" else COLOR_INFO
-    title = f"Whale Alert — {chain_badge(chain)}"
-    footer = _branding_footer(f"Score: {score:.0f} | {settings.brand_name}")
+    title = f"🐋 Whale Alert  ·  {chain_badge(chain)}"
+    footer = _score_footer(score)
     return title, lines, color, footer
 
 
@@ -137,12 +145,13 @@ def _format_accumulation_alert(data: dict) -> tuple[str, list[str], discord.Colo
 
     c_emoji = CHAIN_EMOJI.get(chain, "")
     lines = [
-        f"🔁 **{symbol}** accumulated {buys}x in {window}h  {c_emoji}",
-        f"Wallet: {wallet_str}",
-        f"Total: {fmt_usd(total)}  |  Avg per tx: {fmt_usd(avg)}",
+        f"**🔁 {symbol}  ·  {buys}× buys in {window}h** {c_emoji}",
+        f"👤 Wallet: {wallet_str}",
+        f"💰 Total:  **{fmt_usd(total)}**  ·  Avg/tx: {fmt_usd(avg)}",
+        _branding_line(),
     ]
-    title  = f"Accumulation Alert — {chain_badge(chain)}"
-    footer = _branding_footer(f"{settings.brand_name} — Accumulation Detection")
+    title  = f"📈 Accumulation Alert  ·  {chain_badge(chain)}"
+    footer = f"Repeated buy pattern detected over {window}h window"
     return title, lines, COLOR_BUY, footer
 
 
@@ -155,16 +164,19 @@ def _format_price_alert(data: dict) -> tuple[str, list[str], discord.Color, str]
     pct_change = data.get("pct_change_24h", 0.0)
 
     emoji = "🚀" if condition == "above" else "📉"
+    direction_text = "broke above" if condition == "above" else "dropped below"
     lines = [
-        f"{emoji} **{token.upper()}** hit {condition} target",
-        f"**Current:** ${price:,.6f}",
-        f"**Target:** ${target:,.6f}",
+        f"**{emoji} {token.upper()}  ·  {direction_text} target**",
+        f"💵 Current price:  **${price:,.6f}**",
+        f"🎯 Your target:    **${target:,.6f}**",
     ]
     if pct_change:
-        lines.append(f"**24h Change:** {pct_change:+.2f}%")
+        change_emoji = "📈" if pct_change > 0 else "📉"
+        lines.append(f"{change_emoji} 24h change:  **{pct_change:+.2f}%**")
+    lines.append(_branding_line())
 
     color = COLOR_BUY if condition == "above" else COLOR_SELL
-    return f"Price Alert — {token.upper()}", lines, color, _branding_footer(settings.brand_name)
+    return f"💰 Price Alert  ·  {token.upper()}", lines, color, "Price target reached"
 
 
 def _matches_channel_config(data: dict, channel_cfg: dict) -> bool:
