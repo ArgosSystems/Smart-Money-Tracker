@@ -562,25 +562,26 @@ class EvmChainScanner(BaseChainScanner):
         if not missing:
             return result
 
-        platform = self.config.coingecko_platform
-        BATCH_SIZE = 10
+        # DeFiLlama: free, no API key, no rate limits.
+        # Chain names match our internal names (ethereum, base, arbitrum, bsc, …)
+        chain = self.chain_name
+        BATCH_SIZE = 50
         async with httpx.AsyncClient(timeout=10) as client:
             for i in range(0, len(missing), BATCH_SIZE):
                 batch = missing[i : i + BATCH_SIZE]
-                url = (
-                    f"https://api.coingecko.com/api/v3/simple/token_price/{platform}"
-                    f"?contract_addresses={','.join(batch)}&vs_currencies=usd"
-                )
+                coins = ",".join(f"{chain}:{addr.lower()}" for addr in batch)
+                url = f"https://coins.llama.fi/prices/current/{coins}"
                 try:
                     resp = await client.get(url)
                     resp.raise_for_status()
-                    data = resp.json()
+                    coins_data = resp.json().get("coins", {})
                     for addr in batch:
-                        price = data.get(addr.lower(), {}).get("usd", 0.0)
+                        key = f"{chain}:{addr.lower()}"
+                        price = coins_data.get(key, {}).get("price", 0.0)
                         self._price_cache.set(addr, price)
                         result[addr] = price
                 except Exception as exc:
-                    logger.warning("[%s] CoinGecko price fetch failed: %s", self.chain_name, exc)
+                    logger.warning("[%s] DeFiLlama price fetch failed: %s", self.chain_name, exc)
                     for addr in batch:
                         result[addr] = 0.0
 
@@ -593,10 +594,10 @@ class EvmChainScanner(BaseChainScanner):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
-                    "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+                    "https://coins.llama.fi/prices/current/coingecko:ethereum"
                 )
                 resp.raise_for_status()
-                price = resp.json()["ethereum"]["usd"]
+                price = resp.json()["coins"]["coingecko:ethereum"]["price"]
             self._eth_price_cache.set("eth", price)
             return price
         except Exception:

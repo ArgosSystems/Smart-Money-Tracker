@@ -8,11 +8,13 @@ PriceAlertChecker
 Runs as a background asyncio task started in api/main.py lifespan.
 Every CHECK_INTERVAL seconds it:
   1. Loads all active PriceAlertRule rows from DB.
-  2. Groups them by (chain, token_address) to batch CoinGecko calls.
+  2. Groups them by (chain, token_address) to batch DeFiLlama calls.
   3. For each rule whose price condition is met (and cooldown elapsed),
      fires a broadcast via alert_broadcaster and updates last_triggered_at.
 
 Cooldown: 1 hour between repeated triggers of the same rule.
+
+Price source: DeFiLlama (coins.llama.fi) — free, no API key, no rate limits.
 """
 
 from __future__ import annotations
@@ -38,48 +40,52 @@ TRIGGER_COOLDOWN = 3600    # seconds before the same rule can trigger again
 
 
 # ── Price fetch helpers ───────────────────────────────────────────────────────
+# Uses DeFiLlama (coins.llama.fi) — free, no API key, no rate limits.
+# Coin key format: "{chain}:{contract_address}", e.g. "ethereum:0xabc..."
+# DeFiLlama chain names match our internal chain names (ethereum, base, arbitrum,
+# bsc, polygon, optimism, solana) so no mapping is required.
 
-async def fetch_token_price(token_address: str, coingecko_platform: str = "ethereum") -> float:
-    """Return current USD price of an ERC-20 token via CoinGecko."""
-    url = (
-        f"https://api.coingecko.com/api/v3/simple/token_price/{coingecko_platform}"
-        f"?contract_addresses={token_address.lower()}&vs_currencies=usd"
-    )
+_DEFILLAMA_URL = "https://coins.llama.fi/prices/current"
+
+
+async def fetch_token_price(token_address: str, chain: str = "ethereum") -> float:
+    """Return current USD price of an ERC-20 token via DeFiLlama."""
+    coin_key = f"{chain}:{token_address.lower()}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url)
+            resp = await client.get(f"{_DEFILLAMA_URL}/{coin_key}")
             resp.raise_for_status()
-            return resp.json().get(token_address.lower(), {}).get("usd", 0.0)
+            return resp.json().get("coins", {}).get(coin_key, {}).get("price", 0.0)
     except Exception as exc:
-        logger.warning("Price fetch failed for %s on %s: %s", token_address, coingecko_platform, exc)
+        logger.warning("Price fetch failed for %s on %s: %s", token_address, chain, exc)
         return 0.0
 
 
 async def fetch_prices_batch(
     token_addresses: list[str],
-    coingecko_platform: str,
+    chain: str,
 ) -> dict[str, float]:
-    """Fetch USD prices for multiple tokens from CoinGecko, batched at 10 addresses."""
+    """Fetch USD prices for multiple tokens from DeFiLlama, batched at 50 addresses."""
     if not token_addresses:
         return {}
 
     result: dict[str, float] = {}
-    BATCH_SIZE = 10
+    BATCH_SIZE = 50
     async with httpx.AsyncClient(timeout=15) as client:
         for i in range(0, len(token_addresses), BATCH_SIZE):
             batch = [a.lower() for a in token_addresses[i : i + BATCH_SIZE]]
-            url = (
-                f"https://api.coingecko.com/api/v3/simple/token_price/{coingecko_platform}"
-                f"?contract_addresses={','.join(batch)}&vs_currencies=usd"
-            )
+            coins = ",".join(f"{chain}:{addr}" for addr in batch)
+            url = f"{_DEFILLAMA_URL}/{coins}"
             try:
                 resp = await client.get(url)
                 resp.raise_for_status()
-                data = resp.json()
-                for addr, info in data.items():
-                    result[addr.lower()] = info.get("usd", 0.0)
+                coins_data = resp.json().get("coins", {})
+                for key, info in coins_data.items():
+                    # key is "chain:0xaddress" — extract the address part
+                    addr = key.split(":", 1)[1]
+                    result[addr] = info.get("price", 0.0)
             except Exception as exc:
-                logger.warning("Batch price fetch failed on %s: %s", coingecko_platform, exc)
+                logger.warning("Batch price fetch failed on %s: %s", chain, exc)
     return result
 
 
@@ -146,7 +152,7 @@ class PriceAlertChecker:
                 continue
 
             token_addresses = list({r.token_address.lower() for r in chain_rules})
-            prices = await fetch_prices_batch(token_addresses, chain_cfg.coingecko_platform)
+            prices = await fetch_prices_batch(token_addresses, chain_name)
 
             if not prices:
                 continue
