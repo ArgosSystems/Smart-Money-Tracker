@@ -5,6 +5,39 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-03-17
+
+### Added
+
+#### Pro Alert Cards 🎨
+- **Redesigned Discord alert cards** — all three alert types (whale, price, accumulation) now use a structured, emoji-rich layout with clear visual hierarchy
+- **Automated-by branding line** — every alert card shows `🤖 Automated alert by **Bot Name**` with optional clickable `[Join Discord]` and `[GitHub]` links
+- **`BRAND_DISCORD_INVITE`** — env var for your Discord server invite link; shown as a clickable link in every alert footer
+- **`BRAND_GITHUB_URL`** — env var for your GitHub repo URL; shown alongside the Discord invite
+- **`BRAND_NAME`** — env var for your bot's display name in branding lines (default: `Smart Money Tracker`)
+- Whale alert layout: direction + symbol + USD value on one bold line, from/to addresses with labels, clickable transaction link, priority score footer
+- Price alert layout: broke-above / dropped-below wording, current vs target price, 24h change with directional emoji
+- Accumulation alert layout: buy count + window, wallet + label, total + avg per tx
+
+#### Wallet Label Auto-Update 🏷️
+- **`/track_wallet` now updates the label** if the wallet is already tracked — previously re-tracking an active wallet silently ignored the new label
+- **`label_updated` field** added to `WalletResponse` — Discord command shows `"Label updated"` title instead of `"Wallet tracked"` when an existing label was changed
+
+#### Twitter Accumulation Support 🐦
+- **`_render_accumulation()`** template in `TwitterBroadcaster` — formats accumulation alerts as tweets: wallet label, buy count, total/avg USD, chain emoji
+- **`TWITTER_ENABLE_ACCUMULATION_TWEETS`** feature flag (default: `true`) — controls whether accumulation alerts are posted to Twitter
+- **`accum:<wallet>:<token>` cooldown key** — prevents duplicate accumulation tweets per wallet+token pair
+- Accumulation tweets exposed in `/twitter_status` features map
+
+### Fixed
+
+- **Price alert Discord cards showing blank/zero values** — `_format_price_alert()` was reading wrong metadata keys (`token_id`, `current_price`, `target_price`) instead of the correct ones dispatched by the service (`token_symbol`, `current_price_usd`, `target_price_usd`)
+- **Twitter broadcaster using non-existent `tweepy.AsyncClient`** — `tweepy 4.x` only ships a synchronous `Client`; replaced with `tweepy.Client` wrapped in `asyncio.to_thread()` so the event loop is never blocked
+- **CoinGecko 400 Bad Request on large token batches** — price fetch now splits addresses into chunks of 10 per request instead of sending all addresses in one URL (free-tier URL length limit)
+- **`/twitter_status` showing `Features: Accumulation=Off`** — accumulation flag was missing from the status dict; now correctly exposed
+
+---
+
 ## [2.2.0] - 2026-03-16
 
 ### Added
@@ -523,7 +556,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.2.0** | **2026-03-16** | **Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening** |
+| **2.3.0** | **2026-03-17** | **Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes** |
+| 2.2.0 | 2026-03-16 | Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening |
 | 2.1.0 | 2026-03-14 | Real-time Discord push notifications, smart entity labeling (80 free / 300 pro), pro/free tier gating |
 | 2.0.0 | 2026-03-14 | Twitter/X auto-broadcasting, typed event dispatcher, priority scoring, rate limiting, circuit breaker |
 | 1.8.0 | 2026-03-13 | PostgreSQL + TimescaleDB, SeenTransaction dedup, docker-compose with TimescaleDB |
@@ -545,7 +579,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These features are planned for future releases:
 
-### [2.3.0] - Planned
+### [2.4.0] - Planned
 
 - Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
 - Telegram bot full feature parity with Discord (push notifications, P&L, accumulation)
