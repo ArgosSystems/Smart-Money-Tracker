@@ -123,7 +123,7 @@ def setup_price_alerts(bot: commands.Bot) -> None:
             return
         title = f"Price Alerts{' - ' + chain_badge(chain.value) if chain else ' - All Chains'}"
         lines: list[str] = []
-        for rule in data[:20]:
+        for rule in data[:15]:
             cname     = rule.get("chain", "ethereum")
             is_active = rule.get("is_active", True)
             cond      = rule["condition"].capitalize()
@@ -136,7 +136,7 @@ def setup_price_alerts(bot: commands.Bot) -> None:
                 + lbl
                 + f"\nLast hit: {triggered[:10] if triggered else 'Never'}"
             )
-        footer = f"Showing 20 of {len(data)} rules" if len(data) > 20 else ""
+        footer = f"Showing 15 of {len(data)} rules" if len(data) > 15 else ""
         await cv2_send(interaction, title=title, lines=lines, color=COLOR_INFO, footer=footer)
 
     # /price_alert_delete

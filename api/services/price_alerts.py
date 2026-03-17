@@ -59,23 +59,28 @@ async def fetch_prices_batch(
     token_addresses: list[str],
     coingecko_platform: str,
 ) -> dict[str, float]:
-    """Fetch USD prices for multiple tokens in a single CoinGecko call."""
+    """Fetch USD prices for multiple tokens from CoinGecko, batched at 10 addresses."""
     if not token_addresses:
         return {}
-    joined = ",".join(a.lower() for a in token_addresses)
-    url = (
-        f"https://api.coingecko.com/api/v3/simple/token_price/{coingecko_platform}"
-        f"?contract_addresses={joined}&vs_currencies=usd"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            return {addr.lower(): info.get("usd", 0.0) for addr, info in data.items()}
-    except Exception as exc:
-        logger.warning("Batch price fetch failed on %s: %s", coingecko_platform, exc)
-        return {}
+
+    result: dict[str, float] = {}
+    BATCH_SIZE = 10
+    async with httpx.AsyncClient(timeout=15) as client:
+        for i in range(0, len(token_addresses), BATCH_SIZE):
+            batch = [a.lower() for a in token_addresses[i : i + BATCH_SIZE]]
+            url = (
+                f"https://api.coingecko.com/api/v3/simple/token_price/{coingecko_platform}"
+                f"?contract_addresses={','.join(batch)}&vs_currencies=usd"
+            )
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+                for addr, info in data.items():
+                    result[addr.lower()] = info.get("usd", 0.0)
+            except Exception as exc:
+                logger.warning("Batch price fetch failed on %s: %s", coingecko_platform, exc)
+    return result
 
 
 # ── Trending helper ───────────────────────────────────────────────────────────
