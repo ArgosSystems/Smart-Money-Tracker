@@ -41,10 +41,11 @@ class AlertScorer:
       Whale — Exchange transfer >$500k → 90
       Whale — VC wallet                → 80
       Whale — Smart money >$100k       → 70
-      Whale — Other                    → 40
+      Whale — Other                    → 20–60 (linear)
       Price — ATH                      → 75
       Price — Target hit               → 30
-      Portfolio — Public opt-in only    → max 50
+      Portfolio — Public opt-in only   → max 50
+      Accumulation — $50K–$500K+       → 55–85 (+10 if ≥6 buys)
     """
 
     def __init__(self, weights: dict | None = None) -> None:
@@ -64,6 +65,8 @@ class AlertScorer:
             return self._score_price(event)
         elif event.alert_type == AlertType.PORTFOLIO:
             return self._score_portfolio(event)
+        elif event.alert_type == AlertType.ACCUMULATION:
+            return self._score_accumulation(event)
         return 0.0
 
     def _score_whale(self, event: AlertDTO) -> float:
@@ -97,3 +100,19 @@ class AlertScorer:
         if not meta.get("is_public", False):
             return 0.0  # Private wallets get zero score → suppressed
         return float(self._weights.get("portfolio_public", 50))
+
+    def _score_accumulation(self, event: AlertDTO) -> float:
+        meta = event.metadata
+        total_usd = meta.get("total_usd", 0.0)
+        buy_count = meta.get("buy_count", 0)
+
+        # Base score 55 — scale up with volume and buy frequency
+        # $50K min → 55, $250K → 70, $500K+ → 85
+        capped = min(total_usd, 500_000)
+        score = 55 + (capped / 500_000) * 30
+
+        # Bonus for high buy frequency (≥6 buys in window)
+        if buy_count >= 6:
+            score = min(score + 10, 95)
+
+        return score
