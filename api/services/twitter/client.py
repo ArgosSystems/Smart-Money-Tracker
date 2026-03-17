@@ -3,8 +3,8 @@ api/services/twitter/client.py
 -------------------------------
 Twitter API v2 client abstraction.
 
-Uses tweepy.AsyncClient for OAuth 1.0a User Context (posting tweets).
-Wraps all calls so the rest of the module never imports tweepy directly.
+Uses tweepy.Client (sync) wrapped in asyncio.to_thread() for non-blocking calls.
+tweepy 4.x only ships a synchronous Client for v2 — AsyncClient does not exist.
 
 If tweepy is not installed, the client degrades gracefully — all methods
 raise TwitterClientError with a helpful message.
@@ -12,8 +12,8 @@ raise TwitterClientError with a helpful message.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,9 @@ class TwitterClientError(Exception):
 class TwitterClient:
     """
     Thin wrapper around the Twitter API v2 for posting tweets.
+
+    Uses tweepy.Client (synchronous) via asyncio.to_thread() so it doesn't
+    block the event loop.
 
     Usage
     -----
@@ -52,25 +55,19 @@ class TwitterClient:
         self._bearer_token = bearer_token
         self._client: object | None = None
 
-    async def _ensure_client(self) -> None:
-        """Lazily initialize the tweepy async client."""
+    def _get_client(self) -> object:
+        """Return (or lazily create) the tweepy.Client instance."""
         if self._client is not None:
-            return
+            return self._client
 
         try:
             import tweepy  # noqa: PLC0415
         except ImportError as exc:
             raise TwitterClientError(
-                "tweepy is not installed. Run: pip install tweepy[async]"
+                "tweepy is not installed. Run: pip install tweepy"
             ) from exc
 
-        if not hasattr(tweepy, "AsyncClient"):
-            raise TwitterClientError(
-                f"tweepy {tweepy.__version__} is too old — AsyncClient requires tweepy>=4.0. "
-                "Rebuild the Docker image: docker compose build --no-cache"
-            )
-
-        self._client = tweepy.AsyncClient(
+        self._client = tweepy.Client(
             consumer_key=self._api_key,
             consumer_secret=self._api_secret,
             access_token=self._access_token,
@@ -78,7 +75,8 @@ class TwitterClient:
             bearer_token=self._bearer_token or None,
             wait_on_rate_limit=False,
         )
-        logger.info("Twitter API client initialized")
+        logger.info("Twitter API client initialized (tweepy %s)", tweepy.__version__)
+        return self._client
 
     async def post_tweet(self, text: str, reply_to: str | None = None) -> str:
         """
@@ -87,38 +85,40 @@ class TwitterClient:
         Raises TwitterClientError on failure (with status_code for
         the circuit breaker to inspect).
         """
-        await self._ensure_client()
-
         import tweepy  # noqa: PLC0415
 
-        try:
+        def _do_post() -> str:
+            client = self._get_client()
             kwargs: dict = {"text": text}
             if reply_to:
                 kwargs["in_reply_to_tweet_id"] = reply_to
+            try:
+                response = client.create_tweet(**kwargs)  # type: ignore[union-attr]
+                tweet_id = str(response.data["id"])
+                logger.info("Tweet posted: %s", tweet_id)
+                return tweet_id
+            except tweepy.TweepyException as exc:
+                status = 0
+                if hasattr(exc, "response") and exc.response is not None:
+                    status = exc.response.status_code
+                raise TwitterClientError(str(exc), status_code=status) from exc
 
-            response = await self._client.create_tweet(**kwargs)  # type: ignore[union-attr]
-            tweet_id = str(response.data["id"])
-            logger.info("Tweet posted: %s", tweet_id)
-            return tweet_id
-
-        except tweepy.TweepyException as exc:
-            status = 0
-            if hasattr(exc, "response") and exc.response is not None:
-                status = exc.response.status_code
-            raise TwitterClientError(str(exc), status_code=status) from exc
+        return await asyncio.to_thread(_do_post)
 
     async def delete_tweet(self, tweet_id: str) -> None:
         """Delete a tweet by ID."""
-        await self._ensure_client()
-
         import tweepy  # noqa: PLC0415
 
-        try:
-            await self._client.delete_tweet(tweet_id)  # type: ignore[union-attr]
-            logger.info("Tweet deleted: %s", tweet_id)
-        except tweepy.TweepyException as exc:
-            status = getattr(getattr(exc, "response", None), "status_code", 0)
-            raise TwitterClientError(str(exc), status_code=status) from exc
+        def _do_delete() -> None:
+            client = self._get_client()
+            try:
+                client.delete_tweet(tweet_id)  # type: ignore[union-attr]
+                logger.info("Tweet deleted: %s", tweet_id)
+            except tweepy.TweepyException as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", 0)
+                raise TwitterClientError(str(exc), status_code=status) from exc
+
+        await asyncio.to_thread(_do_delete)
 
     async def get_tweet_metrics(self, tweet_id: str) -> dict:
         """
@@ -127,22 +127,24 @@ class TwitterClient:
         Returns dict with keys: likes, retweets, replies, impressions.
         Requires elevated API access for impressions.
         """
-        await self._ensure_client()
-
         import tweepy  # noqa: PLC0415
 
-        try:
-            response = await self._client.get_tweet(  # type: ignore[union-attr]
-                tweet_id,
-                tweet_fields=["public_metrics"],
-            )
-            metrics = response.data.get("public_metrics", {}) if response.data else {}
-            return {
-                "likes": metrics.get("like_count", 0),
-                "retweets": metrics.get("retweet_count", 0),
-                "replies": metrics.get("reply_count", 0),
-                "impressions": metrics.get("impression_count", 0),
-            }
-        except tweepy.TweepyException as exc:
-            logger.warning("Failed to fetch metrics for tweet %s: %s", tweet_id, exc)
-            return {"likes": 0, "retweets": 0, "replies": 0, "impressions": 0}
+        def _do_get() -> dict:
+            client = self._get_client()
+            try:
+                response = client.get_tweet(  # type: ignore[union-attr]
+                    tweet_id,
+                    tweet_fields=["public_metrics"],
+                )
+                metrics = response.data.get("public_metrics", {}) if response.data else {}
+                return {
+                    "likes": metrics.get("like_count", 0),
+                    "retweets": metrics.get("retweet_count", 0),
+                    "replies": metrics.get("reply_count", 0),
+                    "impressions": metrics.get("impression_count", 0),
+                }
+            except tweepy.TweepyException as exc:
+                logger.warning("Failed to fetch metrics for tweet %s: %s", tweet_id, exc)
+                return {"likes": 0, "retweets": 0, "replies": 0, "impressions": 0}
+
+        return await asyncio.to_thread(_do_get)
