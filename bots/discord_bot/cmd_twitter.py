@@ -19,10 +19,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from ._shared import (
+    COLOR_BUY,
     COLOR_ERROR,
     COLOR_INFO,
     CHAIN_CHOICES,
     api_get,
+    api_post,
     build_cv2,
     cv2_error,
     cv2_send,
@@ -78,6 +80,7 @@ def setup_twitter(bot: commands.Bot) -> None:
                 f"**Budget:** {remaining_day}/{daily_budget} today  |  {remaining_hour}/{hourly_cap} this hour",
                 f"**Circuit Breaker:** {cb_state} ({cb_failures} consecutive failures)",
                 f"**Features:** Whale={whale}  |  Price={price}  |  Portfolio={portfolio}  |  Accumulation={accumulation}",
+                f"**Min Score:** {data.get('min_score', '?')}  |  **Critical Score:** {data.get('critical_score', '?')} (gets reserve)",
             ]
 
             # Fetch recent tweets
@@ -105,6 +108,44 @@ def setup_twitter(bot: commands.Bot) -> None:
                 )
             except Exception:
                 pass
+
+    # ── /twitter_reset_budget ─────────────────────────────────────────────────
+
+    @bot.tree.command(
+        name="twitter_reset_budget",
+        description="Reset the Twitter rate-limiter so posting resumes immediately (admin only)",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def twitter_reset_budget(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        data, err = await api_post("/twitter/reset-budget", {})
+        if data is None:
+            await cv2_error(interaction, "Reset failed", err or "API error", ephemeral=True)
+            return
+
+        rl = data.get("rate_limiter", {})
+        await cv2_send(
+            interaction,
+            title="Twitter Budget Reset",
+            lines=[
+                "Rate-limiter windows cleared — posting resumes immediately.",
+                f"**Remaining today:** {rl.get('remaining_today', '?')}/{rl.get('daily_budget', '?')}",
+                f"**Remaining this hour:** {rl.get('remaining_this_hour', '?')}/{rl.get('hourly_cap', '?')}",
+            ],
+            color=COLOR_BUY,
+            ephemeral=True,
+        )
+
+    @twitter_reset_budget.error
+    async def twitter_reset_budget_error(
+        interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                "You need **Administrator** permission to use this command.",
+                ephemeral=True,
+            )
 
     @twitter_status.error
     async def twitter_status_error(

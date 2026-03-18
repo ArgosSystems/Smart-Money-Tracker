@@ -226,7 +226,8 @@ class BlueSkyBroadcaster:
             return
 
         # Gate 2: Rate limiter
-        is_critical = score >= 80
+        critical_score = getattr(self._config, "critical_score", 80.0)
+        is_critical = score >= critical_score
         if not self._rate_limiter.acquire(is_critical=is_critical):
             logger.warning(
                 "Bluesky rate limit hit — dropping alert #%d score=%.1f "
@@ -321,6 +322,15 @@ class BlueSkyBroadcaster:
                 return f"accum:{addr.lower()}:{symbol.upper()}"
         return None
 
+    # ── Budget management ──────────────────────────────────────────────────────
+
+    def reset_budget(self) -> dict:
+        """Clear both rate-limiter windows. Returns the new budget snapshot."""
+        self._rate_limiter._daily_posts.clear()
+        self._rate_limiter._hourly_posts.clear()
+        logger.warning("Bluesky rate-limiter budget manually reset")
+        return self._rate_limiter.info
+
     # ── Observability ──────────────────────────────────────────────────────────
 
     @property
@@ -332,6 +342,7 @@ class BlueSkyBroadcaster:
             "queue_depth": self._queue.qsize(),
             "handle": self._config.handle,  # type: ignore[attr-defined]
             "min_score": getattr(self._config, "min_score", 0.0),
+            "critical_score": getattr(self._config, "critical_score", 80.0),
             "rate_limiter": self._rate_limiter.info,
             "circuit_breaker": self._circuit.info,
             "features": {

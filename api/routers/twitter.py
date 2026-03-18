@@ -5,9 +5,10 @@ REST endpoints for Twitter broadcaster management and observability.
 
 Routes
 ------
-GET  /api/v1/twitter/status   — broadcaster status (queue, budget, circuit breaker)
-GET  /api/v1/twitter/recent   — last N posted/dry-run tweets from DB
-GET  /api/v1/twitter/preview  — preview tweet rendering for a specific alert
+GET   /api/v1/twitter/status        — broadcaster status (queue, budget, circuit breaker)
+GET   /api/v1/twitter/recent        — last N posted/dry-run tweets from DB
+GET   /api/v1/twitter/preview       — preview tweet rendering for a specific alert
+POST  /api/v1/twitter/reset-budget  — manually clear rate-limiter windows (admin)
 """
 
 from __future__ import annotations
@@ -55,6 +56,22 @@ async def twitter_status() -> dict:
         raise HTTPException(status_code=503, detail="Twitter plugin not registered")
 
     return plugin.status  # type: ignore[attr-defined]
+
+
+@router.post("/reset-budget", summary="Reset Twitter rate-limiter budget")
+async def reset_twitter_budget() -> dict:
+    """Clear both daily and hourly rate-limiter windows so the broadcaster can post again."""
+    if not settings.twitter.enabled:
+        raise HTTPException(status_code=503, detail="Twitter broadcasting is not enabled")
+
+    from api.events.dispatcher import event_dispatcher  # noqa: PLC0415
+
+    plugin = event_dispatcher._plugins.get("twitter")
+    if plugin is None:
+        raise HTTPException(status_code=503, detail="Twitter plugin not registered")
+
+    new_budget = plugin.reset_budget()  # type: ignore[attr-defined]
+    return {"ok": True, "rate_limiter": new_budget}
 
 
 @router.get("/recent", summary="Recent tweets")

@@ -126,7 +126,12 @@ class TelegramChannelBroadcaster:
                 return
 
             score = self._scorer.score(event)
-            if score <= 0:
+            min_score = getattr(self._config, "min_score", 0.0)
+            if score <= 0 or score < min_score:
+                logger.debug(
+                    "TelegramChannel: skipping alert #%d — score %.1f below min %.1f",
+                    event.alert_id, score, min_score,
+                )
                 return
 
             scored = ScoredAlert(event=event, score=score, queued_at=datetime.utcnow())
@@ -226,11 +231,13 @@ class TelegramChannelBroadcaster:
             return
 
         # Gate 2: Rate limiter
-        is_critical = score > 90
+        critical_score = getattr(self._config, "critical_score", 80.0)
+        is_critical = score >= critical_score
         if not self._rate_limiter.acquire(is_critical=is_critical):
-            logger.debug(
-                "Rate limit hit — dropping alert #%d (remaining today=%d, hour=%d)",
-                event.alert_id,
+            logger.warning(
+                "TelegramChannel rate limit hit — dropping alert #%d score=%.1f "
+                "(remaining today=%d, hour=%d)",
+                event.alert_id, score,
                 self._rate_limiter.remaining_today,
                 self._rate_limiter.remaining_this_hour,
             )
@@ -239,7 +246,10 @@ class TelegramChannelBroadcaster:
         # Gate 3: Entity cooldown
         entity_key = self._entity_key(event)
         if entity_key and not self._cooldown.is_cooled_down(entity_key):
-            logger.debug("Cooldown active for %s — skipping alert #%d", entity_key, event.alert_id)
+            logger.info(
+                "TelegramChannel cooldown active for %s — skipping alert #%d (score=%.1f)",
+                entity_key, event.alert_id, score,
+            )
             return
 
         # Render and post
@@ -315,6 +325,15 @@ class TelegramChannelBroadcaster:
                 return f"accum:{addr.lower()}:{symbol.upper()}"
         return None
 
+    # ── Budget management ──────────────────────────────────────────────────────
+
+    def reset_budget(self) -> dict:
+        """Clear both rate-limiter windows. Returns the new budget snapshot."""
+        self._rate_limiter._daily_posts.clear()
+        self._rate_limiter._hourly_posts.clear()
+        logger.warning("TelegramChannel rate-limiter budget manually reset")
+        return self._rate_limiter.info
+
     # ── Observability ──────────────────────────────────────────────────────────
 
     @property
@@ -325,6 +344,8 @@ class TelegramChannelBroadcaster:
             "running": self._running,
             "queue_depth": self._queue.qsize(),
             "channel_id": self._config.channel_id,  # type: ignore[attr-defined]
+            "min_score": getattr(self._config, "min_score", 0.0),
+            "critical_score": getattr(self._config, "critical_score", 80.0),
             "rate_limiter": self._rate_limiter.info,
             "circuit_breaker": self._circuit.info,
             "features": {

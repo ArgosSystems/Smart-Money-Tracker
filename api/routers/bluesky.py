@@ -5,8 +5,9 @@ REST endpoints for Bluesky broadcaster management.
 
 Routes
 ------
-GET  /api/v1/bluesky/status   — broadcaster status (queue, budget, circuit breaker)
-GET  /api/v1/bluesky/recent   — last N posted/dry-run posts from DB
+GET   /api/v1/bluesky/status        — broadcaster status (queue, budget, circuit breaker)
+GET   /api/v1/bluesky/recent        — last N posted/dry-run posts from DB
+POST  /api/v1/bluesky/reset-budget  — manually clear rate-limiter windows (admin)
 """
 
 from __future__ import annotations
@@ -41,6 +42,26 @@ async def bluesky_status() -> dict:
         raise HTTPException(status_code=503, detail="Bluesky plugin not registered")
 
     return plugin.status  # type: ignore[attr-defined]
+
+
+@router.post("/reset-budget", summary="Reset Bluesky rate-limiter budget")
+async def reset_bluesky_budget() -> dict:
+    """
+    Clear both daily and hourly rate-limiter windows so the broadcaster
+    can post again immediately.  Use after hitting the daily cap unexpectedly
+    or after a long dry-run period where budget was not consumed.
+    """
+    if not settings.bluesky.enabled:
+        raise HTTPException(status_code=503, detail="Bluesky broadcasting is not enabled")
+
+    from api.events.dispatcher import event_dispatcher  # noqa: PLC0415
+
+    plugin = event_dispatcher._plugins.get("bluesky")
+    if plugin is None:
+        raise HTTPException(status_code=503, detail="Bluesky plugin not registered")
+
+    new_budget = plugin.reset_budget()  # type: ignore[attr-defined]
+    return {"ok": True, "rate_limiter": new_budget}
 
 
 @router.get("/recent", summary="Recent Bluesky posts")

@@ -5,8 +5,9 @@ REST endpoints for Telegram Channel broadcaster management.
 
 Routes
 ------
-GET  /api/v1/telegram-channel/status   — broadcaster status (queue, budget, circuit breaker)
-GET  /api/v1/telegram-channel/recent   — last N posted/dry-run messages from DB
+GET   /api/v1/telegram-channel/status        — broadcaster status (queue, budget, circuit breaker)
+GET   /api/v1/telegram-channel/recent        — last N posted/dry-run messages from DB
+POST  /api/v1/telegram-channel/reset-budget  — manually clear rate-limiter windows (admin)
 """
 
 from __future__ import annotations
@@ -41,6 +42,22 @@ async def telegram_channel_status() -> dict:
         raise HTTPException(status_code=503, detail="TelegramChannel plugin not registered")
 
     return plugin.status  # type: ignore[attr-defined]
+
+
+@router.post("/reset-budget", summary="Reset Telegram Channel rate-limiter budget")
+async def reset_telegram_channel_budget() -> dict:
+    """Clear both daily and hourly rate-limiter windows so the broadcaster can post again."""
+    if not settings.telegram_channel.enabled:
+        raise HTTPException(status_code=503, detail="Telegram Channel broadcasting is not enabled")
+
+    from api.events.dispatcher import event_dispatcher  # noqa: PLC0415
+
+    plugin = event_dispatcher._plugins.get("telegram_channel")
+    if plugin is None:
+        raise HTTPException(status_code=503, detail="TelegramChannel plugin not registered")
+
+    new_budget = plugin.reset_budget()  # type: ignore[attr-defined]
+    return {"ok": True, "rate_limiter": new_budget}
 
 
 @router.get("/recent", summary="Recent Telegram channel messages")

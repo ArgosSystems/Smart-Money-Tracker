@@ -50,7 +50,9 @@ class TwitterConfig(BaseSettings):
     # Posting budget
     daily_budget: int = 50
     hourly_cap: int = 17
-    critical_reserve_pct: float = 0.20
+    critical_reserve_pct: float = 0.10
+    critical_score: float = 80.0   # alerts >= this score get reserve pool access (TWITTER_CRITICAL_SCORE)
+    min_score: float = 35.0        # alerts below this are skipped before queuing (TWITTER_MIN_SCORE)
 
     # Scoring weights
     scoring_weights: dict = {
@@ -97,7 +99,9 @@ class TelegramChannelConfig(BaseSettings):
     # Posting budget (Telegram is far more generous than Twitter)
     daily_budget: int = 200
     hourly_cap: int = 30
-    critical_reserve_pct: float = 0.20
+    critical_reserve_pct: float = 0.10
+    critical_score: float = 80.0   # alerts >= this score get reserve pool access (TELEGRAM_CHANNEL_CRITICAL_SCORE)
+    min_score: float = 0.0         # no floor by default — Telegram has generous budget (TELEGRAM_CHANNEL_MIN_SCORE)
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {
@@ -143,9 +147,13 @@ class BlueSkyConfig(BaseSettings):
     # Posting budget (conservative — Bluesky can throttle aggressive bots)
     daily_budget: int = 50
     hourly_cap: int = 10
-    # No reserve: whale alerts max out at score=90, so score>90 is almost
-    # unreachable. A non-zero reserve permanently locks budget no alert can use.
-    critical_reserve_pct: float = 0.0
+    # Reserve 10% of daily budget for high-priority alerts (score >= critical_score).
+    # e.g. 50 budget × 0.10 = 5 reserved slots for VC/exchange/smart-money alerts.
+    critical_reserve_pct: float = 0.10
+    # Score threshold to be considered "critical" (gets reserve pool access).
+    # Default 80 matches whale_vc and whale_smart_money_100k weights.
+    # Override with BLUESKY_CRITICAL_SCORE in .env (e.g. 70 or 90).
+    critical_score: float = 80.0
 
     # Minimum score required to even enter the post queue.
     # Keeps tiny whale alerts ($10K–$30K) from burning the daily budget.
