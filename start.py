@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--api-only",  action="store_true", help="Run only the FastAPI backend")
     p.add_argument("--bot-only",  action="store_true", help="Run only the Discord bot")
     p.add_argument("--telegram",  action="store_true", help="Run Telegram bot instead of Discord")
+    p.add_argument("--both",      action="store_true", help="Run both Discord and Telegram bots")
     return p.parse_args()
 
 
@@ -142,7 +143,10 @@ async def main_async(args: argparse.Namespace) -> None:
         tasks.append(asyncio.create_task(run_api(), name="api"))
 
     if not args.api_only:
-        if args.telegram:
+        if args.both:
+            tasks.append(asyncio.create_task(run_discord_bot(),  name="discord_bot"))
+            tasks.append(asyncio.create_task(run_telegram_bot(), name="telegram_bot"))
+        elif args.telegram:
             tasks.append(asyncio.create_task(run_telegram_bot(), name="telegram_bot"))
         else:
             tasks.append(asyncio.create_task(run_discord_bot(), name="discord_bot"))
