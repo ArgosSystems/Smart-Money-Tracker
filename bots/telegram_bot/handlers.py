@@ -1,22 +1,31 @@
 """
 bots/telegram_bot/handlers.py
 ------------------------------
-Telegram command handlers — mirror of the Discord commands.
+Telegram command handlers — full parity with the Discord bot.
 
 Commands
 --------
-/start                         – welcome message
-/track  <address> [label]      – track a wallet
-/untrack <address>             – stop tracking
-/alerts [count]                – recent whale alerts
-/smartmoney <token>            – whale activity for token
-/trending                      – top tokens whales are buying
-/status                        – API health check
+/start                                 – welcome + command list
+/track  <address> [label]              – track a wallet
+/untrack <address>                     – stop tracking
+/alerts [count]                        – recent whale alerts
+/smartmoney <token>                    – whale activity for token
+/trending                              – top tokens whales are buying
+/status                                – API health check
+/wallet_pnl <address> [chain]          – realized + unrealized P&L
+/accumulation_alerts [chain] [count]   – accumulation pattern alerts
+/set_alerts [min_score] [chains] [types] – enable alert push for this chat
+/who_is <address> [chain]              – Smart Label database lookup
+/scan_token <mint>                     – Solana token safety check
+/twitter_status                        – Twitter broadcaster status (admin only)
+
+Formatting uses Telegram HTML parse_mode to match the Discord CV2 style.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
 import httpx
 from telegram import Update
@@ -28,6 +37,21 @@ logger = logging.getLogger(__name__)
 
 # Resolved from settings.api_url — set API_BASE_URL in .env for external hosts.
 API_BASE = settings.api_url.rstrip("/") + "/api/v1"
+
+# Supported chain names (mirrors CHAIN_CHOICES in Discord _shared.py)
+VALID_CHAINS = {
+    "ethereum", "base", "arbitrum", "bsc", "polygon", "optimism", "solana"
+}
+
+CHAIN_EMOJI: dict[str, str] = {
+    "ethereum": "⬛",
+    "base":     "🔵",
+    "arbitrum": "🔶",
+    "bsc":      "🟡",
+    "polygon":  "🟣",
+    "optimism": "🔴",
+    "solana":   "◎",
+}
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -68,11 +92,19 @@ async def _delete(path: str) -> dict | None:
 # ── Format helpers ────────────────────────────────────────────────────────────
 
 def fmt_usd(v: float) -> str:
-    if v >= 1_000_000:
-        return f"${v / 1_000_000:.2f}M"
-    if v >= 1_000:
-        return f"${v / 1_000:.1f}K"
-    return f"${v:.2f}"
+    sign = "-" if v < 0 else ""
+    a = abs(v)
+    if a >= 1_000_000:
+        return f"{sign}${a / 1_000_000:.2f}M"
+    if a >= 1_000:
+        return f"{sign}${a / 1_000:.1f}K"
+    return f"{sign}${a:.2f}"
+
+
+def signed_usd(v: float) -> str:
+    """Like fmt_usd but always shows + prefix for positive values."""
+    s = fmt_usd(v)
+    return f"+{s}" if v >= 0 else s
 
 
 def short(addr: str) -> str:
@@ -83,27 +115,66 @@ def dir_emoji(d: str) -> str:
     return {"BUY": "🟢", "SELL": "🔴", "SEND": "🔵"}.get(d.upper(), "⚪")
 
 
+def chain_badge(chain: str) -> str:
+    emoji = CHAIN_EMOJI.get(chain, "🔗")
+    return f"{emoji} {chain.capitalize()}"
+
+
+def tg_box(title: str, lines: list[str], footer: str | None = None) -> str:
+    """Format a structured message block (mirrors Discord CV2 container style)."""
+    sep = "─" * 28
+    body = "\n".join(lines)
+    msg = f"<b>{title}</b>\n{sep}\n{body}"
+    if footer:
+        msg += f"\n{sep}\n<i>{footer}</i>"
+    return msg
+
+
+def _is_telegram_admin(user_id: int) -> bool:
+    """Check against TELEGRAM_ADMIN_IDS env var (comma-separated int IDs)."""
+    raw = os.environ.get("TELEGRAM_ADMIN_IDS", "").strip()
+    if not raw:
+        return False
+    ids = {int(x.strip()) for x in raw.split(",") if x.strip().isdigit()}
+    return user_id in ids
+
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = (
-        "🐋 *Smart Money Tracker*\n\n"
-        "Track Ethereum whale wallets in real time.\n\n"
-        "*Commands:*\n"
-        "/track `<address>` \\[label\\] — track a wallet\n"
-        "/untrack `<address>` — stop tracking\n"
-        "/alerts \\[count\\] — recent whale moves\n"
-        "/smartmoney `<token>` — activity for a token\n"
-        "/trending — top tokens whales are buying\n"
-        "/status — API health\n"
+    text = tg_box(
+        "🐋 Smart Money Tracker",
+        [
+            "Track on-chain whale wallets in real time across 6 chains.\n",
+            "<b>Whale tracking</b>",
+            "/track &lt;address&gt; [label] — track a wallet",
+            "/untrack &lt;address&gt; — stop tracking",
+            "/alerts [count] — recent whale moves",
+            "/smartmoney &lt;token&gt; — activity for a token",
+            "/trending — top tokens whales are buying",
+            "",
+            "<b>P&amp;L &amp; Accumulation</b>",
+            "/wallet_pnl &lt;address&gt; [chain] — realized + unrealized P&amp;L",
+            "/accumulation_alerts [chain] [count] — repeated buys detected",
+            "",
+            "<b>Utilities</b>",
+            "/who_is &lt;address&gt; [chain] — Smart Label lookup",
+            "/scan_token &lt;mint&gt; — Solana rug-check",
+            "/set_alerts [min_score] [chains] [types] — push alerts to this chat",
+            "/status — API health",
+            "/twitter_status — Twitter broadcaster (admin only)",
+        ],
+        footer="Powered by Smart Money Tracker",
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def cmd_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
     if not args:
-        await update.message.reply_text("Usage: /track <address> [label]")
+        await update.message.reply_text(
+            "Usage: /track &lt;address&gt; [label]", parse_mode="HTML"
+        )
         return
 
     address = args[0]
@@ -115,19 +186,26 @@ async def cmd_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     data = await _post("/wallets/track", payload)
     if data is None:
-        await update.message.reply_text("❌ Failed to track wallet. Check the address format.")
+        await update.message.reply_text(
+            "❌ Failed to track wallet. Check the address format.", parse_mode="HTML"
+        )
         return
 
-    msg = f"✅ Tracking `{data['address']}`"
+    lines = [f"Address: <code>{data['address']}</code>"]
     if data.get("label"):
-        msg += f" — *{data['label']}*"
-    await update.message.reply_text(msg, parse_mode="Markdown")
+        lines.append(f"Label: <b>{data['label']}</b>")
+    lines.append(f"Chain: {chain_badge(data.get('chain', 'ethereum'))}")
+    await update.message.reply_text(
+        tg_box("✅ Wallet Tracked", lines), parse_mode="HTML"
+    )
 
 
 async def cmd_untrack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
     if not args:
-        await update.message.reply_text("Usage: /untrack <address>")
+        await update.message.reply_text(
+            "Usage: /untrack &lt;address&gt;", parse_mode="HTML"
+        )
         return
 
     data = await _delete(f"/wallets/{args[0]}")
@@ -147,54 +225,64 @@ async def cmd_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("No whale alerts yet.")
         return
 
-    lines = [f"🐋 *Recent Whale Alerts ({len(data)})*\n"]
+    lines: list[str] = []
     for alert in data:
         emoji  = dir_emoji(alert["direction"])
         symbol = alert.get("token_symbol") or "ETH"
         usd    = fmt_usd(alert["amount_usd"])
+        chain  = alert.get("chain", "ethereum")
         lines.append(
-            f"{emoji} *{alert['direction']}* {symbol} • {usd}\n"
-            f"  `{short(alert['from_address'])}` → `{short(alert['to_address'])}`\n"
-            f"  Tx: `{alert['tx_hash'][:14]}…`\n"
+            f"{emoji} <b>{alert['direction']}</b> {symbol} • {usd} {CHAIN_EMOJI.get(chain, '')}\n"
+            f"  <code>{short(alert['from_address'])}</code> → <code>{short(alert['to_address'])}</code>\n"
+            f"  Tx: <code>{alert['tx_hash'][:14]}…</code>"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text(
+        tg_box(f"🐋 Recent Whale Alerts ({len(data)})", lines),
+        parse_mode="HTML",
+    )
 
 
 async def cmd_smartmoney(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
     if not args:
-        await update.message.reply_text("Usage: /smartmoney <symbol or address>")
+        await update.message.reply_text(
+            "Usage: /smartmoney &lt;symbol or address&gt;", parse_mode="HTML"
+        )
         return
 
     token = args[0]
     data  = await _get(f"/alerts/token/{token}", params={"limit": 20})
 
     if not data:
-        await update.message.reply_text(f"No whale activity found for *{token.upper()}*.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"No whale activity found for <b>{token.upper()}</b>.", parse_mode="HTML"
+        )
         return
 
-    buys       = [a for a in data if a["direction"] == "BUY"]
-    sells      = [a for a in data if a["direction"] == "SELL"]
-    buy_vol    = sum(a["amount_usd"] for a in buys)
-    sell_vol   = sum(a["amount_usd"] for a in sells)
-    symbol     = data[0].get("token_symbol") or token.upper()
-    sentiment  = "📈 Accumulating" if buy_vol >= sell_vol else "📉 Distributing"
+    buys     = [a for a in data if a["direction"] == "BUY"]
+    sells    = [a for a in data if a["direction"] == "SELL"]
+    buy_vol  = sum(a["amount_usd"] for a in buys)
+    sell_vol = sum(a["amount_usd"] for a in sells)
+    symbol   = data[0].get("token_symbol") or token.upper()
+    sentiment = "📈 Accumulating" if buy_vol >= sell_vol else "📉 Distributing"
 
-    msg = (
-        f"🐋 *Smart Money — {symbol}*\n\n"
-        f"🟢 Buys: {len(buys)} txs • {fmt_usd(buy_vol)}\n"
-        f"🔴 Sells: {len(sells)} txs • {fmt_usd(sell_vol)}\n"
-        f"Sentiment: {sentiment}\n\n"
-        "*Recent transactions:*\n"
-    )
+    lines = [
+        f"🟢 Buys: {len(buys)} txs • {fmt_usd(buy_vol)}",
+        f"🔴 Sells: {len(sells)} txs • {fmt_usd(sell_vol)}",
+        f"Sentiment: {sentiment}",
+        "",
+        "<b>Recent transactions:</b>",
+    ]
     for alert in data[:5]:
-        msg += (
+        lines.append(
             f"{dir_emoji(alert['direction'])} {alert['direction']} {fmt_usd(alert['amount_usd'])}\n"
-            f"  `{short(alert['from_address'])}` → `{short(alert['to_address'])}`\n"
+            f"  <code>{short(alert['from_address'])}</code> → <code>{short(alert['to_address'])}</code>"
         )
 
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(
+        tg_box(f"🐋 Smart Money — {symbol}", lines), parse_mode="HTML"
+    )
 
 
 async def cmd_trending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -203,15 +291,18 @@ async def cmd_trending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("No trending data yet.")
         return
 
-    lines = ["🔥 *Trending Tokens (Whale Buys)*\n"]
+    lines: list[str] = []
     for i, token in enumerate(data, start=1):
+        chain = token.get("chain", "ethereum")
         lines.append(
-            f"*#{i} {token['token_symbol']}*\n"
+            f"<b>#{i} {token['token_symbol']}</b> {CHAIN_EMOJI.get(chain, '')}\n"
             f"  🟢 {token['buy_count']} buys  🔴 {token['sell_count']} sells\n"
-            f"  Volume: {fmt_usd(token['total_volume_usd'])}\n"
+            f"  Volume: {fmt_usd(token['total_volume_usd'])}"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text(
+        tg_box("🔥 Trending Tokens (Whale Buys)", lines), parse_mode="HTML"
+    )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -220,24 +311,471 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             resp = await client.get(settings.api_url.rstrip("/") + "/health")
             resp.raise_for_status()
             h = resp.json()
-        msg = (
-            f"✅ *API Online*\n"
-            f"Whale threshold: ${h['whale_threshold_usd']:,.0f}\n"
-            f"Poll interval: {h['poll_interval_seconds']}s"
+        lines = [
+            f"Whale threshold: <b>${h['whale_threshold_usd']:,.0f}</b>",
+            f"Poll interval: {h['poll_interval_seconds']}s",
+        ]
+        await update.message.reply_text(
+            tg_box("✅ API Online", lines), parse_mode="HTML"
         )
     except Exception:
-        msg = "❌ API is offline. Run `python start.py` first."
+        await update.message.reply_text(
+            "❌ API is offline. Run <code>python start.py</code> first.",
+            parse_mode="HTML",
+        )
 
-    await update.message.reply_text(msg, parse_mode="Markdown")
+
+# ── New commands (Task 2 parity) ──────────────────────────────────────────────
+
+async def cmd_wallet_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /wallet_pnl <address> [chain]
+    Show realized + unrealized P&L for all tracked tokens in a wallet.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /wallet_pnl &lt;address&gt; [chain]", parse_mode="HTML"
+        )
+        return
+
+    address = args[0]
+    chain   = args[1].lower() if len(args) > 1 else None
+
+    if chain and chain not in VALID_CHAINS:
+        await update.message.reply_text(
+            f"Unknown chain <b>{chain}</b>. Valid: {', '.join(sorted(VALID_CHAINS))}",
+            parse_mode="HTML",
+        )
+        return
+
+    params: dict = {}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get(f"/wallets/{address}/pnl", params=params)
+    if data is None:
+        await update.message.reply_text("❌ Could not retrieve P&L data. Check address format.")
+        return
+
+    if not isinstance(data, list) or not data:
+        await update.message.reply_text(
+            tg_box(
+                "No P&L data yet",
+                [
+                    f"<code>{address}</code> has no recorded positions.",
+                    "P&L tracking starts automatically once whale alerts are detected.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    total_realized   = sum(pos["realized_pnl_usd"]         for pos in data)
+    total_unrealized = sum(pos.get("unrealized_pnl_usd", 0.0) for pos in data)
+    total_pnl        = total_realized + total_unrealized
+    chain_label      = chain_badge(chain) if chain else "All Chains"
+
+    lines: list[str] = [
+        f"Wallet: <code>{short(address)}</code>",
+        f"Realized P&amp;L: <b>{signed_usd(total_realized)}</b>",
+        f"Unrealized P&amp;L: <b>{signed_usd(total_unrealized)}</b>",
+        f"Total P&amp;L: <b>{signed_usd(total_pnl)}</b>",
+        "",
+    ]
+
+    for pos in data[:10]:
+        cname      = pos.get("chain", "ethereum")
+        symbol     = pos.get("token_symbol") or pos.get("token_key", "?")
+        realized   = pos.get("realized_pnl_usd", 0.0)
+        unrealized = pos.get("unrealized_pnl_usd", 0.0)
+        total      = realized + unrealized
+        bought     = pos.get("total_bought_usd", 0.0)
+        sold       = pos.get("total_sold_usd", 0.0)
+        txs        = pos.get("tx_count", 0)
+        avg        = pos.get("avg_cost_usd", 0.0)
+        pnl_emoji  = "📈" if total >= 0 else "📉"
+
+        lines.append(
+            f"{pnl_emoji} <b>{symbol}</b> {CHAIN_EMOJI.get(cname, '')} — {signed_usd(total)}\n"
+            f"  Realized: {signed_usd(realized)}  |  Unrealized: {signed_usd(unrealized)}\n"
+            f"  Bought: {fmt_usd(bought)}  |  Sold: {fmt_usd(sold)}  |  Avg: ${avg:,.4f}  |  Txs: {txs}"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"Wallet P&amp;L — {chain_label}",
+            lines,
+            footer=f"{len(data)} position(s) — Smart Money Tracker",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_accumulation_alerts(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    /accumulation_alerts [chain] [count]
+    Show wallets repeatedly accumulating the same token.
+    """
+    args  = context.args or []
+    chain = None
+    count = 10
+
+    for arg in args:
+        if arg.lower() in VALID_CHAINS:
+            chain = arg.lower()
+        elif arg.isdigit():
+            count = max(1, min(int(arg), 20))
+
+    params: dict = {"limit": count}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get("/alerts/accumulations", params=params)
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no accumulation data.")
+        return
+
+    if not data:
+        await update.message.reply_text(
+            tg_box(
+                "No accumulation patterns detected",
+                [
+                    "No wallet has triggered the accumulation pattern yet.",
+                    "Pattern fires when a wallet buys the same token ≥ 3 times in 24 h with ≥ $50K volume.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+    lines: list[str] = []
+
+    for event in data:
+        cname  = event.get("chain", "ethereum")
+        symbol = event.get("token_symbol") or "Unknown"
+        wallet = event.get("wallet_address", "")
+        buys   = event.get("buy_count", 0)
+        total  = event.get("total_usd", 0.0)
+        avg    = event.get("avg_per_tx_usd", 0.0)
+        window = event.get("window_hours", 24)
+        fired  = (event.get("fired_at") or "")[:16].replace("T", " ")
+
+        lines.append(
+            f"🔁 <b>{symbol}</b> {CHAIN_EMOJI.get(cname, '')}\n"
+            f"  Wallet: <code>{short(wallet)}</code>\n"
+            f"  {buys} buys in {window}h — Total: {fmt_usd(total)} — Avg: {fmt_usd(avg)}/tx\n"
+            f"  Detected: {fired} UTC"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"Accumulation Alerts — {chain_label}",
+            lines,
+            footer="Smart Money Tracker — Accumulation Detection",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_set_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /set_alerts [min_score] [chains] [alert_types]
+    Enable real-time whale/price alert push in this Telegram chat.
+    Uses chat_id as the identifier (mirrors Discord set_alert_channel).
+
+    Examples:
+      /set_alerts
+      /set_alerts 50
+      /set_alerts 30 ethereum,bsc
+      /set_alerts 0 all whale,price
+    """
+    args        = context.args or []
+    chat_id_str = str(update.effective_chat.id)
+    min_score   = 0.0
+    chains_str  = None
+    types_str   = None
+
+    # Parse positional args: [min_score] [chains] [types]
+    if len(args) >= 1 and args[0].replace(".", "").isdigit():
+        min_score = float(args[0])
+    if len(args) >= 2 and args[1].lower() != "all":
+        chains_str = args[1]
+    if len(args) >= 3 and args[2].lower() != "all":
+        types_str = args[2]
+
+    payload: dict = {
+        "guild_id":    chat_id_str,
+        "channel_id":  chat_id_str,
+        "min_score":   min_score,
+    }
+    if chains_str:
+        payload["chains"] = chains_str
+    if types_str:
+        payload["alert_types"] = types_str
+
+    data = await _post("/alert-channels", payload)
+    if data is None:
+        await update.message.reply_text(
+            "❌ Failed to configure alerts. This chat may already be registered — "
+            "use /set_alerts again to update.",
+            parse_mode="HTML",
+        )
+        return
+
+    lines = [
+        f"Chat ID: <code>{chat_id_str}</code>",
+        f"Min Score: <b>{data.get('min_score', 0.0)}</b>",
+        f"Chains: <b>{data.get('chains') or 'All'}</b>",
+        f"Alert Types: <b>{data.get('alert_types') or 'All'}</b>",
+        f"Status: {'🟢 Active' if data.get('is_active') else '⚪ Inactive'}",
+    ]
+    await update.message.reply_text(
+        tg_box(
+            "✅ Alert Push Configured",
+            lines,
+            footer=f"Config ID: {data['id']}",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_who_is(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /who_is <address> [chain]
+    Look up an address in the Smart Label database.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /who_is &lt;address&gt; [chain]", parse_mode="HTML"
+        )
+        return
+
+    address     = args[0]
+    chain       = args[1].lower() if len(args) > 1 else "ethereum"
+    chat_id_str = str(update.effective_chat.id)
+
+    data = await _get(f"/guilds/{chat_id_str}/whois/{address}", params={"chain": chain})
+    if data is None:
+        await update.message.reply_text("❌ Could not fetch label data.")
+        return
+
+    name        = data.get("name")
+    entity_type = data.get("entity_type")
+    is_masked   = data.get("is_masked")
+    tier        = data.get("tier")
+
+    if not name:
+        await update.message.reply_text(
+            tg_box(
+                "Unknown Address",
+                [
+                    f"<code>{address}</code> is not in the Smart Label database.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    if is_masked:
+        lines = [
+            f"Name: <b>{name}</b>",
+            "",
+            "<i>This label is part of the Pro database. Upgrade to see full details.</i>",
+        ]
+        await update.message.reply_text(
+            tg_box("🔍 Smart Label Lookup", lines), parse_mode="HTML"
+        )
+    else:
+        lines = [
+            f"Address: <code>{address}</code>",
+            f"Entity: <b>{name}</b> ({entity_type})",
+            f"Tier: {tier.capitalize() if tier else 'Unknown'}",
+        ]
+        await update.message.reply_text(
+            tg_box("🔍 Smart Label Lookup", lines), parse_mode="HTML"
+        )
+
+
+_LEVEL_EMOJI = {"danger": "🔴", "warn": "🟡", "info": "🔵"}
+
+
+async def cmd_scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /scan_token <mint>
+    Solana token safety check — rug-pull detection, mint authority, LP lock & top holders.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /scan_token &lt;solana_mint_address&gt;", parse_mode="HTML"
+        )
+        return
+
+    mint = args[0]
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(f"{API_BASE}/token-safety/{mint}")
+            if resp.status_code == 200:
+                data: dict | None = resp.json()
+                err = ""
+            else:
+                try:
+                    err = resp.json().get("detail", resp.text)
+                except Exception:
+                    err = resp.text[:300]
+                data = None
+    except httpx.ConnectError:
+        data = None
+        err = "Cannot reach the API — is <code>python start.py</code> running?"
+    except Exception as exc:
+        data = None
+        err = str(exc)
+
+    if data is None:
+        await update.message.reply_text(
+            tg_box("❌ Scan Failed", [err or "Could not fetch safety data."]),
+            parse_mode="HTML",
+        )
+        return
+
+    risk_level: str = data.get("risk_level", "UNKNOWN")
+    score: int      = data.get("score", 0)
+    rugged: bool    = data.get("rugged", False)
+    name: str       = data.get("name") or "Unknown Token"
+    symbol: str     = data.get("symbol") or "???"
+
+    if rugged:
+        verdict = "⛔ RUGGED"
+    elif risk_level == "SAFE":
+        verdict = "✅ SAFE"
+    elif risk_level == "CAUTION":
+        verdict = "⚠️ CAUTION"
+    else:
+        verdict = "🚨 DANGER"
+
+    mint_auth   = "✅ Revoked" if data.get("mint_authority_revoked")   else "❌ Active (dev can print tokens)"
+    freeze_auth = "✅ Revoked" if data.get("freeze_authority_revoked") else "❌ Active (dev can freeze wallets)"
+    liquidity   = fmt_usd(data.get("total_liquidity_usd", 0))
+    lp_locked   = f"{data.get('lp_locked_pct', 0):.1f}%"
+    top1        = f"{data.get('top_holder_pct', 0):.1f}%"
+    top5        = f"{data.get('top5_holders_pct', 0):.1f}%"
+
+    lines = [
+        f"Verdict: <b>{verdict}</b>  |  Risk Score: {score:,}",
+        f"Mint Authority: {mint_auth}",
+        f"Freeze Authority: {freeze_auth}",
+        f"Total Liquidity: {liquidity}  |  LP Locked: {lp_locked}",
+        f"Top Holder: {top1} of supply  |  Top 5: {top5} of supply",
+    ]
+
+    risks = data.get("risks") or []
+    if risks:
+        lines.append("")
+        lines.append("<b>Risk Factors:</b>")
+        for r in risks:
+            emoji = _LEVEL_EMOJI.get(r.get("level", "info"), "⚪")
+            desc  = r.get("description") or ""
+            lines.append(
+                f"{emoji} <b>{r['name']}</b> (+{r['score']})"
+                + (f"\n  {desc}" if desc else "")
+            )
+
+    await update.message.reply_text(
+        tg_box(
+            f"◎ {name} ({symbol}) — Token Safety",
+            lines,
+            footer=f"Mint: {short(mint)} · Powered by RugCheck.xyz",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_twitter_status(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    /twitter_status  (admin only — set TELEGRAM_ADMIN_IDS env var)
+    Show Twitter broadcaster status: queue depth, rate limits, circuit breaker.
+    """
+    user_id = update.effective_user.id if update.effective_user else 0
+    if not _is_telegram_admin(user_id):
+        await update.message.reply_text(
+            "⛔ This command is restricted to admins.\n"
+            "Set <code>TELEGRAM_ADMIN_IDS=your_user_id</code> in <code>.env</code>.",
+            parse_mode="HTML",
+        )
+        return
+
+    data = await _get("/twitter/status")
+    if data is None:
+        await update.message.reply_text(
+            "Twitter broadcasting is not enabled or the API is unreachable."
+        )
+        return
+
+    mode        = data.get("mode", "unknown").upper()
+    running     = "Yes" if data.get("running") else "No"
+    queue_depth = data.get("queue_depth", 0)
+
+    rl             = data.get("rate_limiter", {})
+    remaining_day  = rl.get("remaining_today", "?")
+    remaining_hour = rl.get("remaining_this_hour", "?")
+    daily_budget   = rl.get("daily_budget", "?")
+    hourly_cap     = rl.get("hourly_cap", "?")
+
+    cb          = data.get("circuit_breaker", {})
+    cb_state    = cb.get("state", "unknown").upper()
+    cb_failures = cb.get("consecutive_failures", 0)
+
+    features      = data.get("features", {})
+    whale         = "On" if features.get("whale_tweets") else "Off"
+    price         = "On" if features.get("price_tweets") else "Off"
+    portfolio     = "On" if features.get("portfolio_tweets") else "Off"
+    accumulation  = "On" if features.get("accumulation_tweets") else "Off"
+
+    lines = [
+        f"Mode: <b>{mode}</b>  |  Running: <b>{running}</b>",
+        f"Queue Depth: <b>{queue_depth}</b> alerts pending",
+        f"Budget: {remaining_day}/{daily_budget} today  |  {remaining_hour}/{hourly_cap} this hour",
+        f"Circuit Breaker: <b>{cb_state}</b> ({cb_failures} consecutive failures)",
+        f"Features: Whale={whale}  |  Price={price}  |  Portfolio={portfolio}  |  Accumulation={accumulation}",
+    ]
+
+    recent = await _get("/twitter/recent", params={"limit": "5"})
+    if recent:
+        lines.append("")
+        lines.append("<b>Last 5 tweets (dry-run):</b>")
+        for post in recent:
+            status  = post.get("tweet_id") or "dry-run"
+            content = (post.get("content") or "")[:60]
+            score   = post.get("priority_score", 0)
+            lines.append(f"• [{score:.0f}pts] {content}… ({status})")
+
+    await update.message.reply_text(
+        tg_box("🐦 Twitter Broadcaster Status", lines),
+        parse_mode="HTML",
+    )
 
 
 # ── Register all handlers ─────────────────────────────────────────────────────
 
 def register_handlers(app: Application) -> None:
-    app.add_handler(CommandHandler("start",      cmd_start))
-    app.add_handler(CommandHandler("track",      cmd_track))
-    app.add_handler(CommandHandler("untrack",    cmd_untrack))
-    app.add_handler(CommandHandler("alerts",     cmd_alerts))
-    app.add_handler(CommandHandler("smartmoney", cmd_smartmoney))
-    app.add_handler(CommandHandler("trending",   cmd_trending))
-    app.add_handler(CommandHandler("status",     cmd_status))
+    app.add_handler(CommandHandler("start",                cmd_start))
+    app.add_handler(CommandHandler("track",                cmd_track))
+    app.add_handler(CommandHandler("untrack",              cmd_untrack))
+    app.add_handler(CommandHandler("alerts",               cmd_alerts))
+    app.add_handler(CommandHandler("smartmoney",           cmd_smartmoney))
+    app.add_handler(CommandHandler("trending",             cmd_trending))
+    app.add_handler(CommandHandler("status",               cmd_status))
+    # Task 2 — new parity commands
+    app.add_handler(CommandHandler("wallet_pnl",           cmd_wallet_pnl))
+    app.add_handler(CommandHandler("accumulation_alerts",  cmd_accumulation_alerts))
+    app.add_handler(CommandHandler("set_alerts",           cmd_set_alerts))
+    app.add_handler(CommandHandler("who_is",               cmd_who_is))
+    app.add_handler(CommandHandler("scan_token",           cmd_scan_token))
+    app.add_handler(CommandHandler("twitter_status",       cmd_twitter_status))

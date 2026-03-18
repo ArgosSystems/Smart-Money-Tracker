@@ -83,6 +83,99 @@ class TwitterConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TWITTER_", extra="ignore")
 
 
+class TelegramChannelConfig(BaseSettings):
+    """Telegram Channel broadcasting configuration.  All env vars prefixed TELEGRAM_CHANNEL_."""
+
+    enabled: bool = False
+    dry_run: bool = True
+
+    # Bot token for the channel-poster bot (can reuse TELEGRAM_TOKEN or use a dedicated bot)
+    bot_token: str = ""
+    # Channel ID: @username or numeric -100xxxxxxxxxx
+    channel_id: str = ""
+
+    # Posting budget (Telegram is far more generous than Twitter)
+    daily_budget: int = 200
+    hourly_cap: int = 30
+    critical_reserve_pct: float = 0.20
+
+    # Scoring weights (same defaults as Twitter)
+    scoring_weights: dict = {
+        "whale_exchange_500k": 90,
+        "whale_vc": 80,
+        "whale_smart_money_100k": 70,
+        "price_ath": 75,
+        "price_target_hit": 30,
+        "portfolio_public": 50,
+    }
+
+    # Cooldowns (hours) — shorter than Twitter since Telegram channel readers expect frequency
+    cooldown_wallet_hours: float = 2.0
+    cooldown_token_hours: float = 1.0
+
+    # Feature flags
+    enable_whale_posts: bool = True
+    enable_price_posts: bool = True
+    enable_portfolio_posts: bool = False   # default OFF for privacy
+    enable_accumulation_posts: bool = True
+
+    # Circuit breaker (Telegram recovers quickly — short pause)
+    circuit_failure_threshold: int = 3
+    circuit_pause_seconds: int = 300        # 5 min
+    circuit_max_pause_seconds: int = 3600   # 1h
+
+    # Queue overflow
+    max_queue_size: int = 200
+
+    model_config = SettingsConfigDict(env_prefix="TELEGRAM_CHANNEL_", extra="ignore")
+
+
+class BlueSkyConfig(BaseSettings):
+    """Bluesky (AT Protocol) broadcasting configuration.  All env vars prefixed BLUESKY_."""
+
+    enabled: bool = False
+    dry_run: bool = True
+
+    # AT Protocol app-password credentials
+    handle: str = ""    # e.g. smartmoney.bsky.social
+    password: str = ""  # app password (Settings → App Passwords in Bluesky)
+
+    # Posting budget (conservative — Bluesky can throttle aggressive bots)
+    daily_budget: int = 50
+    hourly_cap: int = 10
+    critical_reserve_pct: float = 0.20
+
+    # Scoring weights (same defaults as Twitter)
+    scoring_weights: dict = {
+        "whale_exchange_500k": 90,
+        "whale_vc": 80,
+        "whale_smart_money_100k": 70,
+        "price_ath": 75,
+        "price_target_hit": 30,
+        "portfolio_public": 50,
+    }
+
+    # Cooldowns (hours)
+    cooldown_wallet_hours: float = 4.0
+    cooldown_token_hours: float = 2.0
+
+    # Feature flags
+    enable_whale_posts: bool = True
+    enable_price_posts: bool = True
+    enable_portfolio_posts: bool = False   # default OFF for privacy
+    enable_accumulation_posts: bool = True
+
+    # Circuit breaker
+    circuit_failure_threshold: int = 3
+    circuit_pause_seconds: int = 1800       # 30 min
+    circuit_max_pause_seconds: int = 7200   # 2h
+
+    # Queue overflow
+    max_queue_size: int = 100
+
+    model_config = SettingsConfigDict(env_prefix="BLUESKY_", extra="ignore")
+
+
 class Settings(BaseSettings):
     # ── Bot tokens ──────────────────────────────────────────────────────────
     discord_token: str = ""
@@ -143,6 +236,12 @@ class Settings(BaseSettings):
 
     # ── Twitter / X broadcasting ───────────────────────────────────────────────
     twitter: TwitterConfig = TwitterConfig()
+
+    # ── Telegram Channel broadcasting ─────────────────────────────────────────
+    telegram_channel: TelegramChannelConfig = TelegramChannelConfig()
+
+    # ── Bluesky broadcasting ──────────────────────────────────────────────────
+    bluesky: BlueSkyConfig = BlueSkyConfig()
 
     # ── Branding (shown in every Discord alert footer) ────────────────────────
     brand_discord_invite: str = ""   # e.g. https://discord.gg/xxxxx

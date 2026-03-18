@@ -22,7 +22,11 @@ from fastapi.responses import HTMLResponse
 from api.models import init_db, migrate_db, AsyncSessionLocal
 from api.routers import alerts, whales
 from api.routers.alerts import ws_router
-from api.routers import price_alerts, portfolio, token_safety, twitter, alert_channels, metrics, guilds
+from api.routers import (
+    price_alerts, portfolio, token_safety, twitter, alert_channels, metrics, guilds,
+    telegram_channel as telegram_channel_router,
+    bluesky as bluesky_router,
+)
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
 from api.services.portfolio_tracker import PortfolioTracker
@@ -78,6 +82,28 @@ async def lifespan(app: FastAPI):
             "TwitterBroadcaster registered (dry_run=%s)", settings.twitter.dry_run
         )
 
+    if settings.telegram_channel.enabled:
+        from api.services.telegram_channel.broadcaster import TelegramChannelBroadcaster  # noqa: PLC0415
+        tg_channel_broadcaster = TelegramChannelBroadcaster(
+            config=settings.telegram_channel,
+            session_factory=AsyncSessionLocal,
+        )
+        event_dispatcher.register(tg_channel_broadcaster)
+        logger.info(
+            "TelegramChannelBroadcaster registered (dry_run=%s)", settings.telegram_channel.dry_run
+        )
+
+    if settings.bluesky.enabled:
+        from api.services.bluesky.broadcaster import BlueSkyBroadcaster  # noqa: PLC0415
+        bluesky_broadcaster = BlueSkyBroadcaster(
+            config=settings.bluesky,
+            session_factory=AsyncSessionLocal,
+        )
+        event_dispatcher.register(bluesky_broadcaster)
+        logger.info(
+            "BlueSkyBroadcaster registered (dry_run=%s)", settings.bluesky.dry_run
+        )
+
     await event_dispatcher.start_all()
 
     yield
@@ -121,6 +147,8 @@ app.include_router(price_alerts.router)
 app.include_router(portfolio.router)
 app.include_router(token_safety.router)
 app.include_router(twitter.router)
+app.include_router(telegram_channel_router.router)
+app.include_router(bluesky_router.router)
 app.include_router(alert_channels.router)
 app.include_router(metrics.router)
 app.include_router(guilds.router)

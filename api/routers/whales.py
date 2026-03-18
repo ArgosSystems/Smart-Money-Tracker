@@ -14,22 +14,47 @@ GET    /api/v1/chains                – list configured chains + status
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import TrackedWallet, WalletPosition, get_db
-from api.services.price_alerts import get_trending_tokens
+from api.services.price_alerts import fetch_token_price, get_trending_tokens
 from config.chains import CHAIN_NAMES, CHAINS, active_chains
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["Wallets"])
 
 ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+# DeFiLlama coin keys for native (non-contract) tokens
+_DEFILLAMA_URL = "https://coins.llama.fi/prices/current"
+_NATIVE_COIN_KEYS: dict[str, str] = {
+    "ETH": "coingecko:ethereum",
+    "BNB": "coingecko:binancecoin",
+    "POL": "coingecko:matic-network",
+    "SOL": "coingecko:solana",
+}
+
+
+async def _fetch_native_price(coin_key: str) -> float:
+    """Fetch native-token USD price from DeFiLlama using a coingecko: coin key."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{_DEFILLAMA_URL}/{coin_key}")
+            resp.raise_for_status()
+            return resp.json().get("coins", {}).get(coin_key, {}).get("price", 0.0)
+    except Exception as exc:
+        logger.warning("Native price fetch failed for %s: %s", coin_key, exc)
+        return 0.0
 # base58 alphabet excludes 0, O, I, l to avoid visual ambiguity
 _SOL_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
@@ -259,6 +284,7 @@ class WalletPositionResponse(BaseModel):
     total_sold_token: float
     total_sold_usd: float
     realized_pnl_usd: float
+    unrealized_pnl_usd: float = 0.0  # computed at request time — not stored in DB
     tx_count: int
 
     model_config = {"from_attributes": True}
@@ -267,18 +293,19 @@ class WalletPositionResponse(BaseModel):
 @router.get(
     "/wallets/{address}/pnl",
     response_model=list[WalletPositionResponse],
-    summary="Wallet P&L — realized profit/loss per token",
+    summary="Wallet P&L — realized + unrealized profit/loss per token",
 )
 async def wallet_pnl(
     address: str,
     chain: Optional[str] = Query(default=None, description="Filter by chain"),
     db: AsyncSession = Depends(get_db),
-) -> list[WalletPosition]:
+) -> list[WalletPositionResponse]:
     """
-    Return all tracked token positions and realized P&L for a wallet.
+    Return all tracked token positions with realized and unrealized P&L.
 
-    Positions are created automatically whenever a whale alert for this
-    address is committed by the scanner.
+    Unrealized P&L = (current_price − avg_cost) × qty_held, fetched live
+    from DeFiLlama.  Positions are created automatically whenever a whale
+    alert for this address is committed by the scanner.
     """
     query = select(WalletPosition).where(
         WalletPosition.wallet_address == address.lower()
@@ -288,4 +315,27 @@ async def wallet_pnl(
         query = query.where(WalletPosition.chain == chain.lower())
 
     result = await db.execute(query)
-    return list(result.scalars().all())
+    positions = list(result.scalars().all())
+
+    responses: list[WalletPositionResponse] = []
+    for pos in positions:
+        qty_held = max(0.0, pos.total_bought_token - pos.total_sold_token)
+        unrealized = 0.0
+
+        if qty_held > 0:
+            if pos.token_address:
+                current_price = await fetch_token_price(pos.token_address, pos.chain)
+            else:
+                # Native token (e.g. NATIVE:ETH) — use coingecko coin key
+                symbol = pos.token_key.split(":")[-1] if ":" in pos.token_key else ""
+                coin_key = _NATIVE_COIN_KEYS.get(symbol)
+                current_price = await _fetch_native_price(coin_key) if coin_key else 0.0
+
+            unrealized = (current_price - pos.avg_cost_usd) * qty_held
+
+        resp = WalletPositionResponse.model_validate(pos).model_copy(
+            update={"unrealized_pnl_usd": unrealized}
+        )
+        responses.append(resp)
+
+    return responses

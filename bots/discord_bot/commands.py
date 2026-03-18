@@ -35,6 +35,8 @@ from .cmd_alert_channels import setup_alert_channels
 from .cmd_admin import setup_admin
 from .cmd_pnl import setup_pnl
 from .cmd_accumulation import setup_accumulation
+from .cmd_telegram_channel import setup_telegram_channel
+from .cmd_bluesky import setup_bluesky
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -50,3 +52,5 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_admin(bot)
     setup_pnl(bot)
     setup_accumulation(bot)
+    setup_telegram_channel(bot)
+    setup_bluesky(bot)

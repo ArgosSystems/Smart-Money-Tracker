@@ -64,31 +64,38 @@ def setup_pnl(bot: commands.Bot) -> None:
             return
 
         title_chain = f" — {chain_badge(chain.value)}" if chain else " — All Chains"
-        total_pnl = sum(pos["realized_pnl_usd"] for pos in data)
-        total_color = COLOR_BUY if total_pnl >= 0 else COLOR_SELL
-        pnl_sign = "+" if total_pnl >= 0 else ""
+        total_realized  = sum(pos["realized_pnl_usd"]   for pos in data)
+        total_unrealized = sum(pos.get("unrealized_pnl_usd", 0.0) for pos in data)
+        total_pnl       = total_realized + total_unrealized
+        total_color     = COLOR_BUY if total_pnl >= 0 else COLOR_SELL
+
+        def _signed(v: float) -> str:
+            return f"+{fmt_usd(v)}" if v >= 0 else fmt_usd(v)
 
         lines: list[str] = [
             f"**Wallet:** `{short_addr(address)}`",
-            f"**Total Realized P&L:** **{pnl_sign}{fmt_usd(total_pnl)}**",
+            f"**Realized P&L:** {_signed(total_realized)}",
+            f"**Unrealized P&L:** {_signed(total_unrealized)}",
+            f"**Total P&L:** **{_signed(total_pnl)}**",
             "",
         ]
 
         for pos in data[:10]:
-            cname   = pos.get("chain", "ethereum")
-            symbol  = pos.get("token_symbol") or pos.get("token_key", "?")
-            pnl     = pos.get("realized_pnl_usd", 0.0)
-            bought  = pos.get("total_bought_usd", 0.0)
-            sold    = pos.get("total_sold_usd", 0.0)
-            txs     = pos.get("tx_count", 0)
-            avg     = pos.get("avg_cost_usd", 0.0)
-            pnl_str = f"+{fmt_usd(pnl)}" if pnl >= 0 else fmt_usd(pnl)
-            pnl_emoji = "📈" if pnl >= 0 else "📉"
+            cname      = pos.get("chain", "ethereum")
+            symbol     = pos.get("token_symbol") or pos.get("token_key", "?")
+            realized   = pos.get("realized_pnl_usd", 0.0)
+            unrealized = pos.get("unrealized_pnl_usd", 0.0)
+            total      = realized + unrealized
+            bought     = pos.get("total_bought_usd", 0.0)
+            sold       = pos.get("total_sold_usd", 0.0)
+            txs        = pos.get("tx_count", 0)
+            avg        = pos.get("avg_cost_usd", 0.0)
+            pnl_emoji  = "📈" if total >= 0 else "📉"
 
             lines.append(
-                f"{pnl_emoji} **{symbol}** {CHAIN_EMOJI.get(cname, '')} — {pnl_str}\n"
-                f"Bought: {fmt_usd(bought)}  |  Sold: {fmt_usd(sold)}  |  Avg cost: ${avg:,.4f}\n"
-                f"Transactions: {txs}"
+                f"{pnl_emoji} **{symbol}** {CHAIN_EMOJI.get(cname, '')} — Total: {_signed(total)}\n"
+                f"Realized: {_signed(realized)}  |  Unrealized: {_signed(unrealized)}\n"
+                f"Bought: {fmt_usd(bought)}  |  Sold: {fmt_usd(sold)}  |  Avg: ${avg:,.4f}  |  Txs: {txs}"
             )
 
         await cv2_send(

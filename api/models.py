@@ -266,6 +266,54 @@ class TwitterPost(Base):
         return f"<TwitterPost {self.alert_type} alert={self.alert_id} tweet={status}>"
 
 
+class TelegramChannelPost(Base):
+    """
+    Record of every message posted (or dry-run logged) by TelegramChannelBroadcaster.
+
+    message_id is NULL when TELEGRAM_CHANNEL_DRY_RUN=true — the content was
+    formatted and stored for review but never sent to the Telegram Bot API.
+    """
+
+    __tablename__ = "telegram_channel_posts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    alert_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    message_id: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    posted_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        status = self.message_id or "dry-run"
+        return f"<TelegramChannelPost {self.alert_type} alert={self.alert_id} msg={status}>"
+
+
+class BlueSkyPost(Base):
+    """
+    Record of every post created (or dry-run logged) by BlueSkyBroadcaster.
+
+    post_uri / post_cid are NULL when BLUESKY_DRY_RUN=true.
+    post_uri is the AT URI (at://did:plc:.../app.bsky.feed.post/...).
+    post_cid is the content identifier (CID) of the post.
+    """
+
+    __tablename__ = "bluesky_posts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    alert_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    post_uri: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    post_cid: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    posted_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        status = self.post_uri or "dry-run"
+        return f"<BlueSkyPost {self.alert_type} alert={self.alert_id} uri={status}>"
+
+
 class BroadcasterMetric(Base):
     """
     Operational metrics for broadcaster plugins (queue depth, posts/day, etc.).

@@ -1,0 +1,69 @@
+"""
+api/routers/telegram_channel.py
+---------------------------------
+REST endpoints for Telegram Channel broadcaster management.
+
+Routes
+------
+GET  /api/v1/telegram-channel/status   — broadcaster status (queue, budget, circuit breaker)
+GET  /api/v1/telegram-channel/recent   — last N posted/dry-run messages from DB
+"""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models import TelegramChannelPost, get_db
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/telegram-channel", tags=["Telegram Channel"])
+
+
+@router.get("/status", summary="Telegram Channel broadcaster status")
+async def telegram_channel_status() -> dict:
+    """
+    Return the current state of the Telegram Channel broadcaster.
+    Returns 503 if not enabled.
+    """
+    if not settings.telegram_channel.enabled:
+        raise HTTPException(status_code=503, detail="Telegram Channel broadcasting is not enabled")
+
+    from api.events.dispatcher import event_dispatcher  # noqa: PLC0415
+
+    plugin = event_dispatcher._plugins.get("telegram_channel")
+    if plugin is None:
+        raise HTTPException(status_code=503, detail="TelegramChannel plugin not registered")
+
+    return plugin.status  # type: ignore[attr-defined]
+
+
+@router.get("/recent", summary="Recent Telegram channel messages")
+async def recent_telegram_posts(
+    limit: int = Query(default=10, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Return the most recent Telegram channel posts from the database."""
+    result = await db.execute(
+        select(TelegramChannelPost)
+        .order_by(desc(TelegramChannelPost.posted_at))
+        .limit(limit)
+    )
+    posts = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "alert_type": p.alert_type,
+            "alert_id": p.alert_id,
+            "message_id": p.message_id,
+            "content": p.content,
+            "priority_score": p.priority_score,
+            "posted_at": p.posted_at.isoformat() if p.posted_at else None,
+        }
+        for p in posts
+    ]
