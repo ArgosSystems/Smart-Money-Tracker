@@ -46,7 +46,12 @@ from web3 import AsyncHTTPProvider
 try:
     from web3.middleware import ExtraDataToPOAMiddleware as _POAMiddleware  # web3 >= 6
 except ImportError:
-    from web3.middleware import geth_poa_middleware as _POAMiddleware  # web3 < 6  # type: ignore[no-redef]
+    try:
+        # Some web3 v6 builds expose it in the sub-module directly
+        from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware as _POAMiddleware  # type: ignore[no-redef]
+    except ImportError:
+        # web3 v5 sync middleware — NOT compatible with AsyncWeb3 v6; skip injection
+        _POAMiddleware = None  # type: ignore[assignment]
 from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
@@ -232,9 +237,10 @@ class EvmChainScanner(BaseChainScanner):
     def w3(self) -> AsyncWeb3:
         if self._w3 is None:
             self._w3 = AsyncWeb3(AsyncHTTPProvider(self._rpc_url))
-            if self.config.is_poa:
+            if self.config.is_poa and _POAMiddleware is not None:
                 # BSC and other POA chains use 280-byte extraData in block headers.
                 # Without this middleware, get_block() raises ValueError on every block.
+                # _POAMiddleware is None when no async-compatible version could be imported.
                 self._w3.middleware_onion.inject(_POAMiddleware, layer=0)
         return self._w3
 

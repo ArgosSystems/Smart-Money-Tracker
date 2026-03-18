@@ -239,8 +239,10 @@ def setup_whale(bot: commands.Bot) -> None:
             )
             return
         title_chain = f" - {chain_badge(chain.value)}" if chain else " - All Chains"
+        total = len(data)
+        displayed = data[:15]  # CV2 hard limit: 40 children per Container; each wallet = 2
         lines: list[str] = []
-        for wallet in data:
+        for wallet in displayed:
             cname = wallet.get("chain", "ethereum")
             addr = wallet.get("address", "")
             label = wallet.get("label")
@@ -250,12 +252,13 @@ def setup_whale(bot: commands.Bot) -> None:
             lines.append(
                 f"{CHAIN_EMOJI.get(cname, '')} {chain_badge(cname)} - {status}{label_str}\n`{addr}`"
             )
+        footer_suffix = f" (showing 15/{total})" if total > 15 else ""
         await cv2_send(
             interaction,
             title=f"Tracked Wallets{title_chain}",
             lines=lines,
             color=COLOR_INFO,
-            footer=f"Total: {len(data)} wallets - Smart Money Tracker",
+            footer=f"Total: {total} wallets{footer_suffix} - Smart Money Tracker",
         )
 
     # /trending
