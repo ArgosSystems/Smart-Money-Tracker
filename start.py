@@ -106,6 +106,26 @@ async def run_telegram_bot() -> None:
 
     async with app:
         await app.start()
+
+        # Register command list with Telegram so it shows in the / menu
+        from telegram import BotCommand
+        await app.bot.set_my_commands([
+            BotCommand("start",                "Welcome + command list"),
+            BotCommand("track",                "Track a whale wallet"),
+            BotCommand("untrack",              "Stop tracking a wallet"),
+            BotCommand("alerts",               "Recent whale alerts"),
+            BotCommand("smartmoney",           "Whale activity for a token"),
+            BotCommand("trending",             "Top tokens whales are buying"),
+            BotCommand("status",               "API health check"),
+            BotCommand("wallet_pnl",           "Realized + unrealized P&L"),
+            BotCommand("accumulation_alerts",  "Repeated buy patterns detected"),
+            BotCommand("set_alerts",           "Enable alert push for this chat"),
+            BotCommand("who_is",               "Smart Label database lookup"),
+            BotCommand("scan_token",           "Solana token safety check"),
+            BotCommand("twitter_status",       "Twitter broadcaster status (admin)"),
+        ])
+        logger.info("Telegram: command list registered (%d commands)", 13)
+
         assert app.updater is not None, "Telegram Application has no updater"
         await app.updater.start_polling()
         try:
