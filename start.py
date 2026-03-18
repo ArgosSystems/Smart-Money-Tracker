@@ -148,7 +148,11 @@ async def main_async(args: argparse.Namespace) -> None:
     # a previous run being killed.
 
     try:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Log any task that exited with an exception (otherwise silently swallowed)
+        for task, result in zip(tasks, results):
+            if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                logger.critical("Service '%s' crashed: %s", task.get_name(), result, exc_info=result)
     except (asyncio.CancelledError, KeyboardInterrupt):
         for t in tasks:
             if not t.done():
