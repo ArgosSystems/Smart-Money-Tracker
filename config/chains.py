@@ -56,6 +56,12 @@ class ChainConfig:
     # "solana" → SolanaScanner    (slot-range, getSignaturesForAddress)
     chain_type: str = field(default="evm")
 
+    # ── Proof-of-Authority flag ───────────────────────────────────────────────
+    # True for chains that use non-standard 280-byte extraData in block headers
+    # (BSC / opBNB).  Triggers ExtraDataToPOAMiddleware injection in web3.py so
+    # get_block() can parse the block without raising a ValueError.
+    is_poa: bool = field(default=False)
+
     # ── Computed helpers ──────────────────────────────────────────────────────
 
     @property
@@ -161,6 +167,7 @@ CHAINS: dict[str, ChainConfig] = {
         coingecko_platform="binance-smart-chain",
         usdc_address="0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
         weth_address="0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",  # WBNB
+        is_poa=True,  # BSC uses 280-byte extraData — needs ExtraDataToPOAMiddleware
     ),
     "polygon": ChainConfig(
         chain_id=137,

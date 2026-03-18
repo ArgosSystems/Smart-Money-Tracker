@@ -75,6 +75,7 @@ def setup_bluesky(bot: commands.Bot) -> None:
                 f"**Budget:** {remaining_day}/{daily_budget} today  |  {remaining_hour}/{hourly_cap} this hour",
                 f"**Circuit Breaker:** {cb_state} ({cb_failures} consecutive failures)",
                 f"**Features:** Whale={whale}  |  Price={price}  |  Portfolio={portfolio}  |  Accumulation={accumulation}",
+                f"**Min Score:** {data.get('min_score', '?')}  (alerts below this are skipped before queuing)",
             ]
 
             # Recent posts

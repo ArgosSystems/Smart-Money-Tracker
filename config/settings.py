@@ -143,7 +143,14 @@ class BlueSkyConfig(BaseSettings):
     # Posting budget (conservative — Bluesky can throttle aggressive bots)
     daily_budget: int = 50
     hourly_cap: int = 10
-    critical_reserve_pct: float = 0.20
+    # No reserve: whale alerts max out at score=90, so score>90 is almost
+    # unreachable. A non-zero reserve permanently locks budget no alert can use.
+    critical_reserve_pct: float = 0.0
+
+    # Minimum score required to even enter the post queue.
+    # Keeps tiny whale alerts ($10K–$30K) from burning the daily budget.
+    # Override with BLUESKY_MIN_SCORE in .env.
+    min_score: float = 35.0
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {

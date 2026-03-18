@@ -121,7 +121,12 @@ class BlueSkyBroadcaster:
                 return
 
             score = self._scorer.score(event)
-            if score <= 0:
+            min_score = getattr(self._config, "min_score", 0.0)
+            if score <= 0 or score < min_score:
+                logger.debug(
+                    "Bluesky: skipping alert #%d — score %.1f below min %.1f",
+                    event.alert_id, score, min_score,
+                )
                 return
 
             scored = ScoredAlert(event=event, score=score, queued_at=datetime.utcnow())
@@ -221,11 +226,12 @@ class BlueSkyBroadcaster:
             return
 
         # Gate 2: Rate limiter
-        is_critical = score > 90
+        is_critical = score >= 80
         if not self._rate_limiter.acquire(is_critical=is_critical):
-            logger.debug(
-                "Rate limit hit — dropping alert #%d (remaining today=%d, hour=%d)",
-                event.alert_id,
+            logger.warning(
+                "Bluesky rate limit hit — dropping alert #%d score=%.1f "
+                "(remaining today=%d, hour=%d)",
+                event.alert_id, score,
                 self._rate_limiter.remaining_today,
                 self._rate_limiter.remaining_this_hour,
             )
@@ -234,7 +240,10 @@ class BlueSkyBroadcaster:
         # Gate 3: Entity cooldown
         entity_key = self._entity_key(event)
         if entity_key and not self._cooldown.is_cooled_down(entity_key):
-            logger.debug("Cooldown active for %s — skipping alert #%d", entity_key, event.alert_id)
+            logger.info(
+                "Bluesky cooldown active for %s — skipping alert #%d (score=%.1f)",
+                entity_key, event.alert_id, score,
+            )
             return
 
         # Render and post
@@ -322,6 +331,7 @@ class BlueSkyBroadcaster:
             "running": self._running,
             "queue_depth": self._queue.qsize(),
             "handle": self._config.handle,  # type: ignore[attr-defined]
+            "min_score": getattr(self._config, "min_score", 0.0),
             "rate_limiter": self._rate_limiter.info,
             "circuit_breaker": self._circuit.info,
             "features": {

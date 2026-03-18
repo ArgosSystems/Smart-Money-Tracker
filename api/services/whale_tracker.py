@@ -43,6 +43,7 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from web3 import AsyncWeb3
 from web3 import AsyncHTTPProvider
+from web3.middleware import ExtraDataToPOAMiddleware
 from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
@@ -228,6 +229,10 @@ class EvmChainScanner(BaseChainScanner):
     def w3(self) -> AsyncWeb3:
         if self._w3 is None:
             self._w3 = AsyncWeb3(AsyncHTTPProvider(self._rpc_url))
+            if self.config.is_poa:
+                # BSC and other POA chains use 280-byte extraData in block headers.
+                # Without this middleware, get_block() raises ValueError on every block.
+                self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         return self._w3
 
     # ── Public interface ──────────────────────────────────────────────────────
@@ -275,6 +280,12 @@ class EvmChainScanner(BaseChainScanner):
                     "topics":    [TRANSFER_TOPIC],
                 }))
             except Exception as exc:
+                err_str = str(exc)
+                # -32005 = RPC rate limit / request limit exceeded.
+                # Re-raise so the outer _chain_loop backoff logic takes over
+                # instead of silently swallowing the error and spamming warnings.
+                if "-32005" in err_str or "limit exceeded" in err_str.lower():
+                    raise
                 logger.warning("[%s] get_logs block %d failed: %s", self.chain_name, block_number, exc)
                 logs = []
 
@@ -756,10 +767,10 @@ class MultiChainTracker:
                     )
                     return  # stop this loop; other chains keep running
 
-                elif "429" in err or "Too Many Requests" in err:
+                elif "429" in err or "Too Many Requests" in err or "-32005" in err or "limit exceeded" in err.lower():
                     backoff = min(backoff * 2, MAX_BACKOFF)
                     logger.warning(
-                        "[%s] Rate limited (429) — backing off to %ds.",
+                        "[%s] Rate limited — backing off to %ds.",
                         chain_name, backoff
                     )
 
