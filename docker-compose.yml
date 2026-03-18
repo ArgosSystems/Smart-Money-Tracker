@@ -50,6 +50,12 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-smart_money}:${POSTGRES_PASSWORD:-smart_money}@db:5432/${POSTGRES_DB:-smart_money}
       - API_HOST=0.0.0.0
       - API_PORT=8000
+    volumes:
+      # Mount source code directly — git pull + docker compose restart is enough.
+      # The venv lives in /opt/venv (built into the image) and is NOT overridden.
+      # Only rebuild the image when requirements.txt changes:
+      #   docker compose up --build -d
+      - .:/app
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
