@@ -43,7 +43,10 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from web3 import AsyncWeb3
 from web3 import AsyncHTTPProvider
-from web3.middleware import ExtraDataToPOAMiddleware
+try:
+    from web3.middleware import ExtraDataToPOAMiddleware as _POAMiddleware  # web3 >= 6
+except ImportError:
+    from web3.middleware import geth_poa_middleware as _POAMiddleware  # web3 < 6  # type: ignore[no-redef]
 from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
@@ -232,7 +235,7 @@ class EvmChainScanner(BaseChainScanner):
             if self.config.is_poa:
                 # BSC and other POA chains use 280-byte extraData in block headers.
                 # Without this middleware, get_block() raises ValueError on every block.
-                self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                self._w3.middleware_onion.inject(_POAMiddleware, layer=0)
         return self._w3
 
     # ── Public interface ──────────────────────────────────────────────────────
