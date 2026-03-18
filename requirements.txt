@@ -1,8 +1,8 @@
 # Core API
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-pydantic==2.6.0
-pydantic-settings==2.1.0
+pydantic>=2.7.0,<3.0.0
+pydantic-settings>=2.2.0
 
 # Database
 sqlalchemy==2.0.25
@@ -24,7 +24,7 @@ python-telegram-bot==21.0.1
 tweepy[async]>=4.14.0
 
 # Bluesky (AT Protocol)
-atproto>=0.0.46
+atproto>=0.0.55
 
 # Utilities
 python-dotenv==1.0.1
