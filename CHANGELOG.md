@@ -5,6 +5,89 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-03-18
+
+### Added
+
+#### Bluesky (AT Protocol) Broadcaster 🦋
+- **`api/services/bluesky/`** — new package housing a production-grade Bluesky broadcaster plugin implementing `BroadcasterProtocol`:
+  - **Priority queue** — `asyncio.PriorityQueue` scored 0–100; overflow handler evicts the lowest-scoring pending item while protecting alerts with score ≥ 90
+  - **`TokenBucketRateLimiter`** — rolling 24-hour / 1-hour deque windows; `acquire(is_critical)` reserves `critical_reserve_pct` of the daily budget for high-score alerts
+  - **`EntityCooldownTracker`** — per-wallet TTL (4h default) and per-token TTL (2h default) deduplication; `wallet:` prefix routes to the wallet cooldown, all other keys to the token cooldown
+  - **`CircuitBreaker`** — CLOSED → OPEN after 3 consecutive 429/5xx; 30 min pause with exponential backoff to 2h max; HALF-OPEN probe to test recovery
+  - **`AlertScorer`** — reuses Twitter scoring weights; accumulation alerts score 55–95 linear on USD volume; `_score_alert()` dispatches on `AlertType`
+  - **`reset_budget()`** — clears both `_daily_posts` and `_hourly_posts` deques for manual budget override
+  - **`status` property** — exposes mode, queue depth, handle, `min_score`, `critical_score`, rate-limiter windows, and circuit-breaker state
+  - Posts to Bluesky via `atproto.AsyncClient.send_post()`; dry-run mode formats and logs without posting
+- **`BlueSkyPost` model** — `bluesky_posts` DB table; stores `post_uri`, `post_cid`, `content`, `priority_score`, `alert_type`, `alert_id`, `posted_at`; TimescaleDB hypertable registered in `init_db()`
+- **`BlueSkyConfig`** — Pydantic settings with `BLUESKY_` env prefix: `enabled`, `dry_run`, `handle`, `password` (app password), `daily_budget` (50), `hourly_cap` (10), `critical_reserve_pct` (0.10), `critical_score` (80.0), `min_score` (35.0), `cooldown_wallet_hours` (4.0), `cooldown_token_hours` (2.0), feature flags per alert type, circuit breaker params, `max_queue_size` (100)
+- **`api/routers/bluesky.py`** — REST endpoints:
+  - `GET /api/v1/bluesky/status` — broadcaster health, budget, circuit breaker state, `min_score`, `critical_score`, last-5 posts
+  - `POST /api/v1/bluesky/reset-budget` — clear both rate-limiter deques; returns new remaining counts
+  - `GET /api/v1/bluesky/recent?limit=10` — last N posts from `bluesky_posts` table (max 50)
+- **`/bluesky_status`** Discord slash command (admin-only) — formatted CV2 card: mode, queue depth, hourly/daily budget remaining, circuit breaker state, `min_score`, `critical_score`, last 5 post excerpts
+- **`/bluesky_reset_budget`** Discord slash command (admin-only) — calls `POST /bluesky/reset-budget` and displays the new remaining budget counts
+
+#### Telegram Channel Broadcaster 📢
+- **`api/services/telegram_channel/`** — new package; identical architecture to `BlueSkyBroadcaster` but targets a Telegram Bot API channel:
+  - Same components: priority queue, `TokenBucketRateLimiter`, `EntityCooldownTracker`, `CircuitBreaker`, `AlertScorer`
+  - 1-second inter-post delay (vs 2s for Bluesky); larger default queue (200 vs 100)
+  - Circuit breaker pauses 5 min (vs 30 min for Twitter) — Telegram API recovers faster
+  - Posts via `python-telegram-bot` `Bot.send_message(chat_id=channel_id, text=..., parse_mode="HTML")`
+- **`TelegramChannelPost` model** — `telegram_channel_posts` table: `message_id` (nullable in dry-run), `content`, `priority_score`, `alert_type`, `alert_id`, `posted_at`
+- **`TelegramChannelConfig`** — `TELEGRAM_CHANNEL_` prefix: `enabled`, `dry_run`, `bot_token`, `channel_id` (`@handle` or `-100xxxxxxxxxx`), `daily_budget` (200), `hourly_cap` (30), `critical_score` (80.0), `min_score` (0.0 — no floor by default given generous budget), `critical_reserve_pct` (0.10), `cooldown_wallet_hours` (2.0), `cooldown_token_hours` (1.0), feature flags, circuit breaker params, `max_queue_size` (200)
+- **`api/routers/telegram_channel.py`** — REST endpoints:
+  - `GET /api/v1/telegram-channel/status`
+  - `POST /api/v1/telegram-channel/reset-budget`
+  - `GET /api/v1/telegram-channel/recent?limit=10`
+- **`/telegram_channel_status`** Discord slash command (admin-only) — channel_id, budget, features, last 5 messages
+- **`/telegram_channel_reset_budget`** Discord slash command (admin-only)
+
+#### Configurable Broadcaster Rate-Limiter Controls 🎛️
+Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky):
+- **`critical_score`** (env: `TWITTER_CRITICAL_SCORE`, `TELEGRAM_CHANNEL_CRITICAL_SCORE`, `BLUESKY_CRITICAL_SCORE`, default: `80.0`) — alerts with `priority_score >= critical_score` are flagged `is_critical=True` and can consume the reserved budget pool; replaces the former hardcoded threshold of 90 which was unreachable for whale alerts (ceiling was exactly 90, not above 90)
+- **`min_score`** (env: `TWITTER_MIN_SCORE`, `BLUESKY_MIN_SCORE`, default: `35.0`; `TELEGRAM_CHANNEL_MIN_SCORE`, default: `0.0`) — alerts below this score are discarded in `handle_event()` before queuing; prevents sub-threshold noise from consuming budget
+- **`critical_reserve_pct`** reduced from `0.20` to `0.10` for all broadcasters — 10% of daily budget held for critical alerts instead of 20%; frees more capacity for normal-priority alerts
+- **`reset_budget()`** method on each broadcaster — clears `_daily_posts` and `_hourly_posts` deques in-memory; returns updated rate-limiter info dict
+- **`POST /api/v1/twitter/reset-budget`**, **`POST /api/v1/telegram-channel/reset-budget`**, **`POST /api/v1/bluesky/reset-budget`** — REST endpoints that invoke `reset_budget()` and return `{"ok": true, "rate_limiter": {...}}`
+- **`/twitter_reset_budget`** Discord slash command — parallel to the Bluesky/Telegram equivalents
+- `min_score` and `critical_score` now exposed in every broadcaster's `status` dict and Discord status cards
+- Rate-limit drops upgraded from `DEBUG` to `WARNING` (includes alert ID and score); cooldown skips upgraded from `DEBUG` to `INFO`
+
+#### Unrealized P&L 📊
+- **`GET /api/v1/wallets/{address}/pnl`** now computes unrealized P&L at request time for each open position:
+  - `qty_held = max(0, total_bought_token − total_sold_token)`
+  - ERC-20: fetches `current_price_usd` via `fetch_token_price(token_address, chain)` (DeFiLlama)
+  - Native coins: resolves CoinGecko coin key from token_key sentinel (`NATIVE:ETH` → `ethereum`, `NATIVE:BNB` → `binancecoin`, `NATIVE:POL` → `matic-network`) then fetches from DeFiLlama
+  - `unrealized_pnl_usd = (current_price − avg_cost_usd) × qty_held`
+- **`WalletPositionResponse.unrealized_pnl_usd: float = 0.0`** — new field on the API response schema; not stored in `wallet_positions` (always computed live)
+
+### Changed
+
+#### `/wallet_pnl` Discord Card Redesign 🏦
+- **Complete rewrite of `bots/discord_bot/cmd_pnl.py`** — new layout with three structural sections:
+  - **Header** — `🏦 Wallet P&L — <label or shortened address>`; full address on a second line using `short_addr()` (6+4 chars)
+  - **ASCII summary box** — box-drawing character frame containing three rows: `💚 Realized`, `📊 Unrealized`, `📈 Total P&L`; each value formatted with sign (`+$1.2M` / `−$34.5K`) using magnitude-aware suffix (`K`/`M`/`B`)
+  - **Per-chain breakdown** — one section per chain that has positions; shows chain emoji + chain name header, aggregate realized/unrealized totals for that chain, and top 5 positions by `|realized + unrealized|` ranked by absolute impact; each position line: `TOKEN  ±$realized  (±$unreal unreal)  avg $cost  Nx`
+- **Color coding** — `COLOR_BUY` (green) accent when total P&L ≥ 0; `COLOR_SELL` (red) when negative
+- **Parallel fetch** — `asyncio.gather(api_get(...pnl...), _wallet_label(address))` fetches P&L data and wallet label concurrently
+- **`_wallet_label(address)`** — queries `GET /wallets?active_only=false` and searches the list for the matching address; returns the label string or `None` if not tracked / not labeled
+- New formatters: `_fmt(v)` signed USD, `_fmt_abs(v)` unsigned USD, `_fmt_price(v)` significant-decimal price for micro-cap tokens, `_summary_box(realized, unrealized, total)` box-drawing frame, `_chain_section(chain_name, positions)` per-chain aggregate + top 5
+
+#### Docker Volume Mount 🐳
+- **`docker-compose.yml`** — app service now mounts `. : /app` as a bind volume; venv lives in `/opt/venv` (baked into image, not overridden by the mount). Code changes are picked up by `git pull + docker compose restart` — a full `docker compose up --build` is only needed when `requirements.txt` changes
+
+### Fixed
+
+- **BSC `get_block` POA error** — BSC uses 280-byte non-standard `extraData` in block headers; web3.py raises `ValueError: The field extraData is 280 bytes, but should be 32` on every block without `ExtraDataToPOAMiddleware`. Fixed by adding `is_poa: bool = field(default=False)` to `ChainConfig` and setting `is_poa=True` for the `"bsc"` entry; `EvmChainScanner.w3` property now injects the middleware at `layer=0` when `config.is_poa` is `True`
+- **BSC `-32005` rate-limit errors bypassing exponential backoff** — public BSC RPC returns JSON-RPC error `-32005` ("limit exceeded") on `eth_getLogs`; the inner `scan_block` try/except was catching it, logging a WARNING per block, and discarding it — the outer `_chain_loop` backoff never triggered. Fixed by detecting `-32005` / `"limit exceeded"` in the inner except and re-raising; `_chain_loop` now treats it as a rate-limit signal and applies the same exponential backoff (up to 300s) as HTTP 429
+- **Bluesky/Twitter/Telegram alerts silently dropped after budget exhaustion** — `critical_reserve_pct=0.20` locked 20% of the daily budget for `score > 90` alerts. Whale alerts score exactly 90 at the ceiling (not above), so the reserve was permanently unavailable and all non-critical alerts were silently dropped at `DEBUG` level once the remaining 80% was spent. Fixed by: (1) lowering reserve to 10%, (2) making `critical_score` configurable (default 80.0) so VC/exchange/smart-money alerts (score 80–90) actually use the reserve pool, (3) upgrading rate-limit drops to `WARNING`
+- **`atproto` / `httpx` / `pydantic` dependency conflict** — `atproto<=0.0.54` requires `httpx<0.27.0` while `python-telegram-bot==21.0.1` requires `httpx~=0.27`; `atproto>=0.0.55` requires `pydantic>=2.7`. Fixed by bumping `atproto>=0.0.55`, `pydantic>=2.7.0,<3.0.0`, `pydantic-settings>=2.2.0`
+- **API task crashing silently on startup** — `asyncio.gather(*tasks, return_exceptions=True)` swallowed any startup exception from the API task without logging it, leaving the Discord bot running but the API never listening. Fixed by inspecting gather results and emitting `logger.critical(...)` with full traceback for any task that exits with an unhandled exception
+- **`ExtraDataToPOAMiddleware` import error on web3 < 6** — `ExtraDataToPOAMiddleware` was introduced in web3 v6; installations running web3 v5 raised `ImportError` at startup, preventing the API from loading. Fixed with a try/except fallback: imports `ExtraDataToPOAMiddleware` (web3 ≥ 6) or `geth_poa_middleware` (web3 < 6) and aliases both to `_POAMiddleware`
+
+---
+
 ## [2.4.0] - 2026-03-17
 
 ### Added
@@ -583,7 +666,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.4.0** | **2026-03-17** | **Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix** |
+| **2.5.0** | **2026-03-18** | **Bluesky broadcaster, Telegram Channel broadcaster, unrealized P&L, configurable critical_score + min_score + reset_budget for all broadcasters, /wallet_pnl redesign, BSC POA fix** |
+| 2.4.0 | 2026-03-17 | Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix |
 | 2.3.0 | 2026-03-17 | Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes |
 | 2.2.0 | 2026-03-16 | Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening |
 | 2.1.0 | 2026-03-14 | Real-time Discord push notifications, smart entity labeling (80 free / 300 pro), pro/free tier gating |
@@ -607,11 +691,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These features are planned for future releases:
 
-### [2.5.0] - Planned
+### [2.6.0] - Planned
 
 - Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
-- Telegram bot full feature parity with Discord (push notifications, P&L, accumulation)
-- Unrealized P&L — fetch current token price and compute open position value
+- Telegram bot full command parity with Discord (push notifications, P&L, accumulation slash commands)
 
 ### [3.0.0] - Planned
 
