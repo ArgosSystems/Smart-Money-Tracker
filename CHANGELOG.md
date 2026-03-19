@@ -5,6 +5,46 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-03-19
+
+### Added
+
+#### Exchange Flow Detection 🔴🟢
+- **`api/services/exchange_flow_detector.py`** — stateless detector following the same pattern as `accumulation_detector.py`; called in scan phase-2 (after the first whale alert commit so `alert.id` is guaranteed):
+  - Identifies which address is the tracked whale and which is the counterpart
+  - Looks up counterpart in `SmartLabel` where `entity_type == 'exchange'`
+  - **OUTFLOW** (`whale → exchange`) — sell signal 🔴; fires when the wallet sends tokens to a known exchange
+  - **INFLOW** (`exchange → whale`) — accumulation signal 🟢; fires when the wallet receives tokens from a known exchange
+  - **1-hour cooldown** per `(wallet_address, exchange_address, token)` triple — suppresses rapid repeated transfers to the same exchange for the same token; cooldown keyed on `token_address` when available, falls back to `token_symbol`
+  - Returns a new `ExchangeFlowEvent` added to the session (not committed); `None` when no exchange match or cooldown active
+- **`ExchangeFlowEvent` ORM model** — new `exchange_flow_events` table:
+  - Columns: `id`, `whale_alert_id` (FK → `whale_alerts.id`), `wallet_address`, `chain`, `exchange_name`, `exchange_address`, `flow_direction` (`OUTFLOW` | `INFLOW`), `token_symbol`, `token_address`, `amount_usd`, `amount_token`, `tx_hash`, `fired_at`
+  - TimescaleDB hypertable registered in `init_db()` on `fired_at`; safe no-op on plain PostgreSQL/SQLite
+- **`AlertType.EXCHANGE_FLOW`** — new enum value in `api/events/protocol.py`; wired through the full broadcaster / scorer / renderer pipeline
+- **`ExchangeFlowAlertEvent(AlertDTO)`** — typed DTO subclass in `api/events/types.py`; `alert_type` fixed to `EXCHANGE_FLOW`; metadata keys: `exchange_flow_id`, `wallet_address`, `wallet_label`, `exchange_name`, `exchange_address`, `flow_direction`, `token_symbol`, `token_address`, `amount_usd`, `amount_token`, `tx_hash`
+- **`api/services/whale_tracker.py` phase-2 wiring** — `check_exchange_flow(db, alert, wallet_map)` called for every new whale alert alongside accumulation detection; `ExchangeFlowAlertEvent` dispatched to all broadcaster plugins after the phase-2 commit
+- **`api/routers/exchange_flows.py`** — REST endpoints registered under `/api/v1`:
+  - `GET /api/v1/exchange-flows` — recent exchange flow events (newest first); query params: `limit` (≤ 200), `offset`, `chain`, `direction` (`OUTFLOW` | `INFLOW`), `exchange` (partial name match via `ILIKE`)
+  - `GET /api/v1/exchange-flows/wallet/{wallet_address}` — flows for a specific whale wallet; query params: `limit` (≤ 100), `chain`
+  - Response schema: `ExchangeFlowResponse` (all table columns serialized; `fired_at` as ISO 8601 string)
+- **`/exchange_flows` Discord slash command** (`bots/discord_bot/cmd_exchange_flows.py`):
+  - Options: `chain` (CHAIN_CHOICES autocomplete), `direction` (`OUTFLOW — whale → exchange 🔴` | `INFLOW — exchange → whale 🟢`), `count` (1–15)
+  - CV2 card capped at 15 events (each = 2 CV2 children) to stay under Discord's 40-child hard limit
+  - Color: `COLOR_SELL` (red) for OUTFLOW-only filter, `COLOR_BUY` (green) for INFLOW-only, `COLOR_INFO` (blue) for unfiltered
+  - Each event line: signal emoji, token + chain badge, wallet short address + action label + exchange name, USD + token amount, detected timestamp, inline tx explorer link
+- **`/exchange_flows` Telegram command** (`bots/telegram_bot/handlers.py`):
+  - Args: `[chain] [OUTFLOW|INFLOW] [count]` (positional, order-independent)
+  - HTML-formatted `tg_box()` output matching the accumulation_alerts pattern; max 15 events
+- **Twitter broadcaster — exchange flow support**:
+  - **`_score_exchange_flow()`** in `api/services/twitter/scoring.py` — OUTFLOW base score 60, INFLOW base score 50; both scaled linearly by `amount_usd` up to $500K (+25 points); ceiling 90
+  - **`_render_exchange_flow()`** in `api/services/twitter/templates.py` — OUTFLOW: `🔴 Exchange Flow … SELL SIGNAL / wallet moved N TOKEN TO Exchange / $USD`; INFLOW: `🟢 … BUY SIGNAL / wallet received N TOKEN FROM Exchange`; includes explorer tx link and brand signature; respects 280-char limit via `_enforce_limit()`
+
+### Changed
+
+- **`start.py`** — `set_my_commands()` list updated from 13 to 14 commands; `exchange_flows` added with description `"Whale exchange flow events (sells/buys)"`
+
+---
+
 ## [2.5.0] - 2026-03-18
 
 ### Added
@@ -666,7 +706,8 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.5.0** | **2026-03-18** | **Bluesky broadcaster, Telegram Channel broadcaster, unrealized P&L, configurable critical_score + min_score + reset_budget for all broadcasters, /wallet_pnl redesign, BSC POA fix** |
+| **2.6.0** | **2026-03-19** | **Exchange Flow Detection — OUTFLOW/INFLOW signals via SmartLabel exchange addresses, ExchangeFlowEvent table, /exchange_flows Discord + Telegram commands, Twitter scorer + renderer** |
+| 2.5.0 | 2026-03-18 | Bluesky broadcaster, Telegram Channel broadcaster, unrealized P&L, configurable critical_score + min_score + reset_budget for all broadcasters, /wallet_pnl redesign, BSC POA fix |
 | 2.4.0 | 2026-03-17 | Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix |
 | 2.3.0 | 2026-03-17 | Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes |
 | 2.2.0 | 2026-03-16 | Wallet P&L tracker (WACB), accumulation detection (≥3 buys / 24h / $50K), two-phase commit, Docker hardening |
@@ -691,7 +732,7 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 These features are planned for future releases:
 
-### [2.6.0] - Planned
+### [2.7.0] - Planned
 
 - Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
 - Telegram bot full command parity with Discord (push notifications, P&L, accumulation slash commands)
