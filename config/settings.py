@@ -59,6 +59,7 @@ class TwitterConfig(BaseSettings):
     budget_reserve_exchange_flow: int = 10  # TWITTER_BUDGET_RESERVE_EXCHANGE_FLOW
     budget_reserve_accumulation: int = 10   # TWITTER_BUDGET_RESERVE_ACCUMULATION
     budget_reserve_price: int = 5           # TWITTER_BUDGET_RESERVE_PRICE
+    budget_reserve_cluster: int = 10        # TWITTER_BUDGET_RESERVE_CLUSTER
 
     # Scoring weights
     scoring_weights: dict = {
@@ -80,6 +81,7 @@ class TwitterConfig(BaseSettings):
     enable_portfolio_tweets: bool = False   # default OFF for privacy
     enable_accumulation_tweets: bool = True
     enable_exchange_flow_tweets: bool = True
+    enable_cluster_tweets: bool = True
 
     # Circuit breaker
     circuit_failure_threshold: int = 3
@@ -115,6 +117,7 @@ class TelegramChannelConfig(BaseSettings):
     budget_reserve_exchange_flow: int = 40  # TELEGRAM_CHANNEL_BUDGET_RESERVE_EXCHANGE_FLOW
     budget_reserve_accumulation: int = 40   # TELEGRAM_CHANNEL_BUDGET_RESERVE_ACCUMULATION
     budget_reserve_price: int = 20          # TELEGRAM_CHANNEL_BUDGET_RESERVE_PRICE
+    budget_reserve_cluster: int = 40        # TELEGRAM_CHANNEL_BUDGET_RESERVE_CLUSTER
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {
@@ -136,6 +139,7 @@ class TelegramChannelConfig(BaseSettings):
     enable_portfolio_posts: bool = False   # default OFF for privacy
     enable_accumulation_posts: bool = True
     enable_exchange_flow_posts: bool = True
+    enable_cluster_posts: bool = True
 
     # Circuit breaker (Telegram recovers quickly — short pause)
     circuit_failure_threshold: int = 3
@@ -179,6 +183,7 @@ class BlueSkyConfig(BaseSettings):
     budget_reserve_exchange_flow: int = 10  # BLUESKY_BUDGET_RESERVE_EXCHANGE_FLOW
     budget_reserve_accumulation: int = 10   # BLUESKY_BUDGET_RESERVE_ACCUMULATION
     budget_reserve_price: int = 5           # BLUESKY_BUDGET_RESERVE_PRICE
+    budget_reserve_cluster: int = 10        # BLUESKY_BUDGET_RESERVE_CLUSTER
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {
@@ -200,6 +205,7 @@ class BlueSkyConfig(BaseSettings):
     enable_portfolio_posts: bool = False   # default OFF for privacy
     enable_accumulation_posts: bool = True
     enable_exchange_flow_posts: bool = True
+    enable_cluster_posts: bool = True
 
     # Circuit breaker
     circuit_failure_threshold: int = 3

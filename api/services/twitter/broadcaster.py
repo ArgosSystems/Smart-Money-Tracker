@@ -67,6 +67,7 @@ class TwitterBroadcaster:
             reserve_exchange_flow=config.budget_reserve_exchange_flow,  # type: ignore[attr-defined]
             reserve_accumulation=config.budget_reserve_accumulation,  # type: ignore[attr-defined]
             reserve_price=config.budget_reserve_price,  # type: ignore[attr-defined]
+            reserve_wallet_cluster=config.budget_reserve_cluster,  # type: ignore[attr-defined]
         )
         self._cooldown = EntityCooldownTracker(
             wallet_cooldown_hours=config.cooldown_wallet_hours,  # type: ignore[attr-defined]
@@ -178,6 +179,8 @@ class TwitterBroadcaster:
             return cfg.enable_accumulation_tweets  # type: ignore[attr-defined]
         elif event.alert_type == AlertType.EXCHANGE_FLOW:
             return cfg.enable_exchange_flow_tweets  # type: ignore[attr-defined]
+        elif event.alert_type == AlertType.WALLET_CLUSTER:
+            return cfg.enable_cluster_tweets  # type: ignore[attr-defined]
         return False
 
     def _handle_overflow(self, new_item: ScoredAlert) -> None:
@@ -392,6 +395,10 @@ class TwitterBroadcaster:
             exchange = meta.get("exchange_address")
             if addr and exchange:
                 return f"exflow:{addr.lower()}:{exchange.lower()}"
+        elif event.alert_type == AlertType.WALLET_CLUSTER:
+            cluster_id = meta.get("cluster_id")
+            if cluster_id:
+                return f"cluster:{cluster_id}"
         return None
 
     # ── Budget management ──────────────────────────────────────────────────────

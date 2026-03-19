@@ -69,6 +69,8 @@ class AlertScorer:
             return self._score_accumulation(event)
         elif event.alert_type == AlertType.EXCHANGE_FLOW:
             return self._score_exchange_flow(event)
+        elif event.alert_type == AlertType.WALLET_CLUSTER:
+            return self._score_cluster(event)
         return 0.0
 
     def _score_whale(self, event: AlertDTO) -> float:
@@ -118,6 +120,24 @@ class AlertScorer:
             score = min(score + 10, 95)
 
         return score
+
+    def _score_cluster(self, event: AlertDTO) -> float:
+        meta = event.metadata
+        confidence    = meta.get("confidence", 0.6)
+        member_count  = meta.get("member_count", 2)
+        total_volume  = meta.get("total_volume_usd", 0.0)
+
+        # Base: confidence * 70 (range 42–70)
+        score = confidence * 70
+
+        # Member count bonus: each extra wallet above 2 adds 2 pts (cap at +16)
+        score += min((member_count - 2) * 2, 16)
+
+        # Volume bonus: $1M+ combined volume adds up to 10 pts
+        capped = min(total_volume, 1_000_000)
+        score += (capped / 1_000_000) * 10
+
+        return min(score, 90)
 
     def _score_exchange_flow(self, event: AlertDTO) -> float:
         meta = event.metadata

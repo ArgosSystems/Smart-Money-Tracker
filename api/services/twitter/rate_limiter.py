@@ -59,6 +59,8 @@ def get_reserve_type(alert_type_value: str, score: float) -> str:
         return "accumulation"
     if alert_type_value == "price":
         return "price"
+    if alert_type_value == "wallet_cluster":
+        return "wallet_cluster"
     return "shared"
 
 
@@ -91,7 +93,7 @@ class TokenBucketRateLimiter:
                                      + reserve_accumulation + reserve_price)
     """
 
-    _POOL_NAMES = ("whale", "exchange_flow", "accumulation", "price")
+    _POOL_NAMES = ("whale", "exchange_flow", "accumulation", "price", "wallet_cluster")
 
     def __init__(
         self,
@@ -101,6 +103,7 @@ class TokenBucketRateLimiter:
         reserve_exchange_flow: int = 10,
         reserve_accumulation: int = 10,
         reserve_price: int = 5,
+        reserve_wallet_cluster: int = 10,
         # Kept for backward compatibility — ignored when individual reserves are set.
         critical_reserve_pct: float = 0.10,
     ) -> None:
@@ -109,10 +112,11 @@ class TokenBucketRateLimiter:
 
         # Per-type reserve capacities (absolute counts)
         self._reserve_caps: dict[str, int] = {
-            "whale":         reserve_whale,
-            "exchange_flow": reserve_exchange_flow,
-            "accumulation":  reserve_accumulation,
-            "price":         reserve_price,
+            "whale":          reserve_whale,
+            "exchange_flow":  reserve_exchange_flow,
+            "accumulation":   reserve_accumulation,
+            "price":          reserve_price,
+            "wallet_cluster": reserve_wallet_cluster,
         }
 
         # Shared pool: whatever budget remains after all reserves

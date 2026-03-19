@@ -58,6 +58,8 @@ class TelegramMessageRenderer:
             text = self._render_accumulation(event, score)
         elif event.alert_type == AlertType.EXCHANGE_FLOW:
             text = self._render_exchange_flow(event, score)
+        elif event.alert_type == AlertType.WALLET_CLUSTER:
+            text = self._render_cluster(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
         return self._enforce_limit(text)
@@ -145,6 +147,45 @@ class TelegramMessageRenderer:
             f"👤 <code>{wallet_label}</code>\n"
             f"Bought <b>{symbol}</b> <b>{buy_count}×</b> in {window_hours}h\n"
             f"💰 Total: <b>{total_usd}</b>  ·  Avg/tx: <b>{avg_usd}</b>\n\n"
+            f"<i>{_html(_brand_sig())}</i>"
+        )
+        return msg
+
+    def _render_cluster(self, event: AlertDTO, score: float) -> str:
+        meta         = event.metadata
+        cluster_id   = meta.get("cluster_id", "?")
+        label        = _html(meta.get("cluster_label") or f"Cluster #{cluster_id}")
+        member_count = meta.get("member_count", 2)
+        confidence   = meta.get("confidence", 0.0)
+        methods_csv  = meta.get("detection_methods", "")
+        volume       = meta.get("total_volume_usd", 0.0)
+        chain        = event.chain.capitalize()
+        ce           = chain_emoji(event.chain)
+
+        _METHOD_LABELS = {"funding": "💸 Funding", "timing": "⏱ Timing", "pattern": "🔁 Pattern"}
+        methods_str = " · ".join(
+            _METHOD_LABELS.get(m.strip(), m.strip())
+            for m in methods_csv.split(",") if m.strip()
+        ) or "Unknown"
+
+        member_addresses = meta.get("member_addresses", [])
+        member_labels    = meta.get("member_labels", [])
+        member_lines: list[str] = []
+        for i, addr in enumerate(member_addresses[:5]):
+            lbl = (member_labels[i] if i < len(member_labels) and member_labels[i]
+                   else short_addr(addr))
+            member_lines.append(f"• <code>{_html(lbl)}</code>")
+        if member_count > 5:
+            member_lines.append(f"• +{member_count - 5} more wallets")
+        members_str = "\n".join(member_lines) if member_lines else "—"
+
+        msg = (
+            f"🕵️ <b>Whale Cluster Detected</b>  {ce} <b>{chain}</b>\n"
+            f"{_SEP}\n"
+            f"👥 <b>{label}</b>\n"
+            f"💰 Combined volume: <b>{fmt_usd(volume)}</b>\n"
+            f"🎯 Confidence: <b>{confidence * 100:.0f}%</b>  ·  {methods_str}\n"
+            f"👤 Members ({member_count}):\n{members_str}\n\n"
             f"<i>{_html(_brand_sig())}</i>"
         )
         return msg

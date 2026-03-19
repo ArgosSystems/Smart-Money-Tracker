@@ -146,8 +146,15 @@ class ClusterAnalyzer:
     Background service — re-detects wallet clusters every 10 minutes.
 
     Called as an asyncio task from api/main.py lifespan startup.
-    On each cycle: full rebuild (delete stale → detect → persist).
+    On each cycle: full rebuild (delete stale → detect → persist → dispatch new).
+
+    Keeps a set of known cluster fingerprints across cycles so we only
+    dispatch WALLET_CLUSTER alerts for genuinely new or grown clusters.
     """
+
+    def __init__(self) -> None:
+        # frozenset of member (address, chain) tuples — one per known cluster
+        self._known_fingerprints: set[frozenset] = set()
 
     async def start(self) -> None:
         logger.info(
@@ -156,7 +163,7 @@ class ClusterAnalyzer:
         )
         while True:
             try:
-                await _run_analysis()
+                await _run_analysis(self._known_fingerprints)
             except asyncio.CancelledError:
                 logger.info("[cluster] ClusterAnalyzer cancelled.")
                 return
@@ -167,8 +174,8 @@ class ClusterAnalyzer:
 
 # ── Core analysis pipeline ────────────────────────────────────────────────────
 
-async def _run_analysis() -> None:
-    """One full detection + persistence cycle."""
+async def _run_analysis(known_fingerprints: set[frozenset]) -> None:
+    """One full detection + persistence cycle.  Dispatches alerts for new clusters."""
     async with AsyncSessionLocal() as db:
         lookback_start = datetime.datetime.utcnow() - datetime.timedelta(days=_LOOKBACK_DAYS)
 
@@ -204,6 +211,7 @@ async def _run_analysis() -> None:
             await db.execute(delete(ClusterMembership))
             await db.execute(delete(WalletCluster))
             await db.commit()
+            known_fingerprints.clear()
             logger.info("[cluster] no signals detected — cleared stale clusters")
             return
 
@@ -217,10 +225,16 @@ async def _run_analysis() -> None:
             await db.execute(delete(ClusterMembership))
             await db.execute(delete(WalletCluster))
             await db.commit()
+            known_fingerprints.clear()
             return
 
-        await _persist_clusters(db, uf, groups, all_signals, chain_wallet_map, lookback_start)
+        cluster_data = await _persist_clusters(
+            db, uf, groups, all_signals, chain_wallet_map, lookback_start
+        )
         logger.info("[cluster] rebuilt %d cluster(s) from %d signals", len(groups), len(all_signals))
+
+    # Dispatch WALLET_CLUSTER events for new clusters (outside the DB session)
+    await _dispatch_new_clusters(cluster_data, known_fingerprints)
 
 
 # ── Exchange address lookup ───────────────────────────────────────────────────
@@ -478,8 +492,11 @@ async def _persist_clusters(
     all_signals: list,
     chain_wallet_map: dict[str, dict[str, Optional[str]]],
     lookback_start: datetime.datetime,
-) -> None:
-    """Full rebuild: delete existing clusters, then insert fresh ones."""
+) -> list[dict]:
+    """Full rebuild: delete existing clusters, then insert fresh ones.
+
+    Returns a list of cluster data dicts for post-commit event dispatch.
+    """
 
     # Per-wallet signals map: (address, chain) → set of methods
     wallet_signals: dict[tuple, set[str]] = defaultdict(set)
@@ -500,6 +517,8 @@ async def _persist_clusters(
     # Clear old data first
     await db.execute(delete(ClusterMembership))
     await db.execute(delete(WalletCluster))
+
+    cluster_data_list: list[dict] = []
 
     for root_key, members in groups.items():
         if len(members) < 2:
@@ -545,6 +564,8 @@ async def _persist_clusters(
         db.add(cluster)
         await db.flush()   # get cluster.id before adding memberships
 
+        member_addresses: list[str] = []
+        member_labels: list[Optional[str]] = []
         for addr, ch in members:
             member_methods = wallet_signals.get((addr, ch), methods)
             member_signals_csv = ",".join(sorted(member_methods))
@@ -558,8 +579,91 @@ async def _persist_clusters(
                 confidence=confidence,
             )
             db.add(membership)
+            member_addresses.append(addr)
+            member_labels.append(wallet_label)
+
+        cluster_data_list.append({
+            "cluster_id":        cluster.id,
+            "cluster_label":     cluster_label,
+            "chain":             chain,
+            "confidence":        confidence,
+            "member_count":      len(members),
+            "detection_methods": methods_csv,
+            "total_volume_usd":  total_volume,
+            "member_addresses":  member_addresses,
+            "member_labels":     member_labels,
+            "fingerprint":       frozenset(members),
+        })
 
     await db.commit()
+    return cluster_data_list
+
+
+# ── New-cluster event dispatch ────────────────────────────────────────────────
+
+async def _dispatch_new_clusters(
+    cluster_data_list: list[dict],
+    known_fingerprints: set[frozenset],
+) -> None:
+    """
+    Dispatch a WALLET_CLUSTER AlertDTO for each genuinely new cluster.
+
+    A cluster is "new" if its member fingerprint was not seen in the previous
+    analysis cycle.  This prevents re-alerting every 10 minutes for the same
+    persistent cluster.
+    """
+    if not cluster_data_list:
+        known_fingerprints.clear()
+        return
+
+    # Lazy import to avoid circular dependency at module load time
+    try:
+        from api.events.dispatcher import event_dispatcher  # noqa: PLC0415
+        from api.events.protocol import AlertDTO, AlertType  # noqa: PLC0415
+    except Exception as exc:
+        logger.error("[cluster] could not import event_dispatcher: %s", exc)
+        known_fingerprints.clear()
+        for cd in cluster_data_list:
+            known_fingerprints.add(cd["fingerprint"])
+        return
+
+    new_fingerprints: set[frozenset] = set()
+    now = datetime.datetime.utcnow()
+
+    for cd in cluster_data_list:
+        fp = cd["fingerprint"]
+        new_fingerprints.add(fp)
+        if fp in known_fingerprints:
+            continue   # already alerted for this exact group
+
+        event = AlertDTO(
+            alert_type=AlertType.WALLET_CLUSTER,
+            alert_id=cd["cluster_id"],
+            chain=cd["chain"],
+            timestamp=now,
+            metadata={
+                "cluster_id":        cd["cluster_id"],
+                "cluster_label":     cd["cluster_label"],
+                "confidence":        cd["confidence"],
+                "member_count":      cd["member_count"],
+                "detection_methods": cd["detection_methods"],
+                "total_volume_usd":  cd["total_volume_usd"],
+                "member_addresses":  cd["member_addresses"],
+                "member_labels":     cd["member_labels"],
+            },
+        )
+        try:
+            await event_dispatcher.dispatch(event)
+            logger.info(
+                "[cluster] dispatched WALLET_CLUSTER alert for cluster #%d (%d members, %.0f%% conf)",
+                cd["cluster_id"], cd["member_count"], cd["confidence"] * 100,
+            )
+        except Exception as exc:
+            logger.error("[cluster] failed to dispatch cluster alert: %s", exc)
+
+    # Replace known fingerprints with the current cycle's set
+    known_fingerprints.clear()
+    known_fingerprints.update(new_fingerprints)
 
 
 # ── Real-time lookup for alert enrichment ─────────────────────────────────────

@@ -115,6 +115,8 @@ class TweetRenderer:
             text = self._render_accumulation(event, score)
         elif event.alert_type == AlertType.EXCHANGE_FLOW:
             text = self._render_exchange_flow(event, score)
+        elif event.alert_type == AlertType.WALLET_CLUSTER:
+            text = self._render_cluster(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
 
@@ -250,6 +252,33 @@ class TweetRenderer:
             f"💰 Total: {total_usd}  ·  Avg/tx: {avg_usd}\n\n"
             f"{_brand_sig()}\n"
             f"#{symbol} #{chain} #SmartMoney #OnChain #DeFi"
+        )
+        return tweet
+
+    def _render_cluster(self, event: AlertDTO, score: float) -> str:
+        meta         = event.metadata
+        cluster_id   = meta.get("cluster_id", "?")
+        label        = meta.get("cluster_label") or f"Cluster #{cluster_id}"
+        member_count = meta.get("member_count", 2)
+        confidence   = meta.get("confidence", 0.0)
+        methods_csv  = meta.get("detection_methods", "")
+        volume       = meta.get("total_volume_usd", 0.0)
+        chain        = event.chain.capitalize()
+        ce           = chain_emoji(event.chain)
+
+        _METHOD_LABELS = {"funding": "💸 Funding", "timing": "⏱ Timing", "pattern": "🔁 Pattern"}
+        methods_str = " · ".join(
+            _METHOD_LABELS.get(m.strip(), m.strip())
+            for m in methods_csv.split(",") if m.strip()
+        ) or "Unknown"
+
+        tweet = (
+            f"🕵️ Whale Cluster Detected  {ce} {chain}\n\n"
+            f"👥 {label} — {member_count} coordinated wallets\n"
+            f"💰 Combined volume: {fmt_usd(volume)}\n"
+            f"🎯 Confidence: {confidence * 100:.0f}%  ·  {methods_str}\n\n"
+            f"{_brand_sig()}\n"
+            f"#WhaleCluster #{chain} #SmartMoney #DeFi"
         )
         return tweet
 
