@@ -5,6 +5,72 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-03-19
+
+### Added
+
+#### Wallet Clustering 🕵️
+- **`api/services/cluster_detector.py`** — `ClusterAnalyzer` background service + `get_wallet_cluster_info()` for per-alert enrichment; detects groups of wallets that likely belong to the same entity using **three signal methods derived entirely from existing DB data (no external APIs, no ML)**:
+  - **Method 1 — Funding source** (confidence 0.70): wallet A sent ETH/native directly to tracked wallet B (SEND direction, same chain, both tracked); B subsequently traded any of the same tokens as A → high-confidence same entity
+  - **Method 2 — Timing correlation** (base confidence 0.60, up to 0.90): wallets A and B both bought the same token within a **5-minute window** and this co-buy recurred **3+ times** → coordinated accumulation signal; confidence scales linearly with extra coincidences (+0.05 per coincidence above the minimum)
+  - **Method 3 — Directional pattern** (confidence 0.65): 3+ wallets moved the same direction (all BUY or all SELL) on the same token in the same **hour-bucket**, and this pattern repeated across **2+ different hours** → coordinated cluster
+  - **Multi-method bonus**: +0.10 per additional method beyond the first (max 1.0); a cluster detected by all three methods reaches ≥ 0.95 confidence
+  - **Exchange exclusion**: addresses with `entity_type = 'exchange'` in `SmartLabel` are never clustered
+  - **Union-find grouping**: path-compressed union-find with deterministic lexicographic root selection merges overlapping signals into minimal clusters
+  - **Full rebuild every 10 minutes**: existing `WalletCluster` / `ClusterMembership` rows are deleted and re-detected from scratch each cycle (7-day lookback window) so stale clusters never accumulate
+  - **Fingerprint deduplication**: `ClusterAnalyzer` tracks `frozenset` member fingerprints across cycles; `WALLET_CLUSTER` alerts are only dispatched for **genuinely new or grown clusters**, not re-dispatched every 10 minutes for the same persistent group
+- **`WalletCluster` ORM model** — new `wallet_clusters` table: `id`, `chain`, `cluster_label` (derived from the first labelled member wallet, e.g. `"Jump's Cluster"`), `detection_methods` (CSV: `funding`, `timing`, `pattern`), `confidence` (float 0–1), `member_count`, `total_volume_usd` (aggregate of all member alerts in the lookback window), `first_detected_at`, `last_updated_at`
+- **`ClusterMembership` ORM model** — new `cluster_memberships` table: `id`, `cluster_id` (FK → `wallet_clusters.id`), `wallet_address`, `chain`, `wallet_label`, `detection_signals` (CSV methods that link this wallet), `confidence`, `added_at`
+- **`AlertType.WALLET_CLUSTER`** — new enum value in `api/events/protocol.py`; wired through all broadcaster / scorer / renderer pipelines
+- **`api/routers/clusters.py`** — REST endpoints registered under `/api/v1`:
+  - `GET /api/v1/clusters` — list detected clusters (newest first); query params: `chain`, `min_confidence` (float 0–1), `limit` (≤ 200), `offset`; each cluster includes its full `members` list
+  - `GET /api/v1/clusters/wallet/{wallet_address}` — all clusters containing a specific wallet; optional `?chain=` filter; answers "which entity does this wallet belong to?"
+  - `GET /api/v1/clusters/{id}` — single cluster by ID with all members
+  - `POST /api/v1/clusters/analyze` — trigger an immediate re-analysis cycle in the background (normal cadence is every 10 minutes)
+- **`/clusters`, `/cluster_info`, `/wallet_cluster` Discord slash commands** (`bots/discord_bot/cmd_clusters.py`):
+  - `/clusters [chain] [min_confidence] [count]` — CV2 card listing detected clusters; each entry shows cluster label, chain badge, visual confidence bar (`████░░░░ 70%`), member address list (up to 4, then `+N more`), combined volume, and detection methods with emoji (`💸 Funding`, `⏱️ Timing`, `🔁 Pattern`)
+  - `/cluster_info <id>` — full detail card: all members with per-wallet detection signals, combined volume, and a built-in explanation of all three detection methods
+  - `/wallet_cluster <address> [chain]` — looks up which cluster(s) a wallet belongs to; shows confidence bar, co-cluster siblings, this wallet's specific linking signals, and combined volume
+- **`/clusters` and `/wallet_cluster` Telegram commands** (`bots/telegram_bot/handlers.py`):
+  - `/clusters [chain] [count]` — HTML-formatted `tg_box()` matching the Discord layout; empty state includes detection method explanations
+  - `/wallet_cluster <address> [chain]` — shows cluster membership and co-cluster wallets for any tracked address
+- **`start.py`** — `set_my_commands()` list updated; `clusters` and `wallet_cluster` added with descriptions
+- **Whale alert enrichment** — `api/services/whale_tracker.py` calls `get_wallet_cluster_info(db, wallet_address, chain)` for every new whale alert; `WhaleAlertEvent` metadata gains six new optional keys: `cluster_id`, `cluster_label`, `cluster_confidence`, `cluster_size`, `detection_methods`, `cluster_volume_usd` (all `None` when wallet is not clustered)
+- **Broadcaster support — WALLET_CLUSTER alerts**:
+  - **`_score_cluster()`** in `api/services/twitter/scoring.py` — `confidence × 70` base score + member count bonus (+2 per member above 2) + volume bonus (linear up to $500K, +10 points); effective range ≈ 42–90
+  - **`_render_cluster()`** in `api/services/twitter/templates.py` — `🕵️ WALLET CLUSTER DETECTED / N wallets — same entity / Confidence: X% / Combined: $USD / Methods: …`; respects 280-char limit
+  - **`_render_cluster()`** in `api/services/telegram_channel/templates.py` — HTML-formatted card with member address list and detection method breakdown
+  - **`_render_cluster()`** in `api/services/bluesky/templates.py` — plain text ≤ 300 chars with member count, confidence, and combined volume
+  - `_should_accept()`, `_entity_key()` (`cluster:{cluster_id}`), and `reserve_wallet_cluster` wired in all three broadcaster plugins
+  - Feature flags: `enable_cluster_tweets` (`TWITTER_ENABLE_CLUSTER_TWEETS`, default `true`), `enable_cluster_posts` (`TELEGRAM_CHANNEL_ENABLE_CLUSTER_POSTS` / `BLUESKY_ENABLE_CLUSTER_POSTS`, default `true`)
+  - Budget reserve slots: `TWITTER_BUDGET_RESERVE_CLUSTER=10`, `TELEGRAM_CHANNEL_BUDGET_RESERVE_CLUSTER=40`, `BLUESKY_BUDGET_RESERVE_CLUSTER=10`
+
+#### Bulk Pro Label CSV Importer 📥
+- **`admin/import_pro_labels.py`** — batch-import Pro-tier `SmartLabel` rows from a CSV file; complement to the single-entry `admin/add_pro_label.py` tool
+  - CSV format (header row required): `address,name,entity_type,chain,tier` (`tier` column accepted but always forced to `"pro"`)
+  - Normalises addresses to lowercase; defaults `chain` to `"ethereum"` when blank
+  - `--update` flag — overwrite `name` and `entity_type` for existing `(address, chain)` pairs instead of skipping them
+  - `--dry-run` flag — prints what would be inserted/updated without touching the database; detects in-CSV duplicates
+  - Prints a summary of inserted / updated / skipped / error counts at the end
+  - Usage: `python admin/import_pro_labels.py labels.csv [--update] [--dry-run]`
+
+### Changed
+
+- **Per-alert-type budget allocation for all three broadcasters** — complete rewrite of `api/services/twitter/rate_limiter.py`; the same pool system was applied to `telegram_channel/broadcaster.py` and `bluesky/broadcaster.py`:
+  - **Five named budget pools**: `whale` (score ≥ 90), `exchange_flow`, `accumulation`, `price`, `shared`; `wallet_cluster` added as a sixth pool in the follow-up broadcaster wiring commit
+  - Each alert type draws from its **own reserved pool first**; reserved slots are never consumed by other types; the `shared` pool is the fallback available to all types
+  - `get_reserve_type(alert_type)` — maps `AlertType` enum to the pool name; `acquire(is_critical, reserve_type)` now takes the reserve type instead of just `is_critical`
+  - `budget_reserve_whale`, `budget_reserve_exchange_flow`, `budget_reserve_accumulation`, `budget_reserve_price` config fields on all three broadcaster config models (env: `TWITTER_BUDGET_RESERVE_WHALE`, etc.)
+  - Shared pool size = `daily_budget − sum(all reserves)`; documented in `.env.example` with the shared-pool math
+  - **Fixes exchange flow and accumulation alerts being silently dropped** — previously once the shared daily budget was exhausted by whale alerts, all `EXCHANGE_FLOW` and `ACCUMULATION` events were discarded; they now consume their own reserved slots first
+
+### Fixed
+
+- **`ExchangeFlowEvent` TimescaleDB hypertable primary key** — `exchange_flow_events` uses `fired_at` as the hypertable partition column but the original primary key was `(id)` only; TimescaleDB requires partition columns to be part of the PK for hypertable creation. Fixed by adding `fired_at` to the composite PK: `PrimaryKeyConstraint("id", "fired_at")` in `api/models.py`
+- **Manual cluster analysis endpoint always re-alerting known clusters** — `POST /api/v1/clusters/analyze` called `_run_analysis(set())` (empty fingerprint set), causing every persistent cluster to be treated as new and re-dispatched as a fresh `WALLET_CLUSTER` alert on every manual trigger. Fixed by passing `set()` only (correct — manual triggers are intentionally stateless), and updated the endpoint docstring to document this behaviour
+
+---
+
 ## [2.6.1] - 2026-03-19
 
 ### Fixed
@@ -716,7 +782,8 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.6.1** | **2026-03-19** | **Fix: exchange flow alerts wired through all broadcaster plugins (Twitter, Telegram Channel, Bluesky) — was only reaching Discord WebSocket auto-push** |
+| **2.7.0** | **2026-03-19** | **Wallet clustering (3 detection methods, background analyzer, API + Discord/Telegram commands, broadcaster support); bulk pro label CSV importer; per-alert-type budget pools for all 3 broadcasters** |
+| 2.6.1 | 2026-03-19 | Fix: exchange flow alerts wired through all broadcaster plugins (Twitter, Telegram Channel, Bluesky) — was only reaching Discord WebSocket auto-push |
 | 2.6.0 | 2026-03-19 | Exchange Flow Detection — OUTFLOW/INFLOW signals via SmartLabel exchange addresses, ExchangeFlowEvent table, /exchange_flows Discord + Telegram commands, Twitter scorer + renderer |
 | 2.5.0 | 2026-03-18 | Bluesky broadcaster, Telegram Channel broadcaster, unrealized P&L, configurable critical_score + min_score + reset_budget for all broadcasters, /wallet_pnl redesign, BSC POA fix |
 | 2.4.0 | 2026-03-17 | Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix |
@@ -743,10 +810,10 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 These features are planned for future releases:
 
-### [2.7.0] - Planned
+### [2.8.0] - Planned
 
 - Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
-- Telegram bot full command parity with Discord (push notifications, P&L, accumulation slash commands)
+- Telegram bot full command parity with Discord (push notifications, P&L, accumulation commands)
 
 ### [3.0.0] - Planned
 
