@@ -5,6 +5,16 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-03-19
+
+### Fixed
+
+- **Exchange flow alerts silently dropped by all broadcaster plugins** — `_should_accept()` in `TwitterBroadcaster`, `TelegramChannelBroadcaster`, and `BlueSkyBroadcaster` returned `False` for any unknown `AlertType`, causing every `EXCHANGE_FLOW` event to be discarded before scoring or rendering. Alerts were only reaching the Discord WebSocket auto-push. Fixed by adding `AlertType.EXCHANGE_FLOW` branches to `_should_accept()` in all three broadcasters, guarded by new feature flags (`enable_exchange_flow_tweets` / `enable_exchange_flow_posts`, default `True`, env-configurable)
+- **`_entity_key()` returned `None` for exchange flow events** — broadcaster cooldown tracker could not deduplicate rapid exchange flow alerts because `_entity_key()` had no branch for `EXCHANGE_FLOW`. Fixed with `exflow:{wallet_address}:{exchange_address}` key in all three broadcasters
+- **Telegram Channel and Bluesky had no exchange flow renderer** — `_render_exchange_flow()` was only implemented on `TweetRenderer`; `TelegramMessageRenderer` and `BlueSkyPostRenderer` fell through to the generic fallback. Added HTML-formatted `_render_exchange_flow()` to `TelegramMessageRenderer` and plain-text version to `BlueSkyPostRenderer`, both matching the existing per-type renderer pattern
+
+---
+
 ## [2.6.0] - 2026-03-19
 
 ### Added
@@ -706,7 +716,8 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.6.0** | **2026-03-19** | **Exchange Flow Detection — OUTFLOW/INFLOW signals via SmartLabel exchange addresses, ExchangeFlowEvent table, /exchange_flows Discord + Telegram commands, Twitter scorer + renderer** |
+| **2.6.1** | **2026-03-19** | **Fix: exchange flow alerts wired through all broadcaster plugins (Twitter, Telegram Channel, Bluesky) — was only reaching Discord WebSocket auto-push** |
+| 2.6.0 | 2026-03-19 | Exchange Flow Detection — OUTFLOW/INFLOW signals via SmartLabel exchange addresses, ExchangeFlowEvent table, /exchange_flows Discord + Telegram commands, Twitter scorer + renderer |
 | 2.5.0 | 2026-03-18 | Bluesky broadcaster, Telegram Channel broadcaster, unrealized P&L, configurable critical_score + min_score + reset_budget for all broadcasters, /wallet_pnl redesign, BSC POA fix |
 | 2.4.0 | 2026-03-17 | Bulk CSV price alert import, DeFiLlama price API, accumulation bug fix, /wallet_pnl crash fix, Discord CV2 limit fix |
 | 2.3.0 | 2026-03-17 | Pro alert cards with branding, wallet label auto-update, Twitter accumulation support, CoinGecko + tweepy fixes |
