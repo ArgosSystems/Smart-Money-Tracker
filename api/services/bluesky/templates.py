@@ -51,6 +51,8 @@ class BlueSkyPostRenderer:
             text = self._render_portfolio(event, score)
         elif event.alert_type == AlertType.ACCUMULATION:
             text = self._render_accumulation(event, score)
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            text = self._render_exchange_flow(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
         return self._enforce_limit(text)
@@ -137,6 +139,39 @@ class BlueSkyPostRenderer:
             f"💰 Total: {total_usd} · Avg/tx: {avg_usd}\n\n"
             f"{_brand_sig()}\n#{symbol} #SmartMoney #OnChain"
         )
+        return post
+
+    def _render_exchange_flow(self, event: AlertDTO, score: float) -> str:
+        meta      = event.metadata
+        direction = meta.get("flow_direction", "OUTFLOW")
+        exchange  = meta.get("exchange_name", "Exchange")
+        symbol    = meta.get("token_symbol", "???")
+        amount    = fmt_number(meta.get("amount_token", 0.0))
+        usd       = fmt_usd(meta.get("amount_usd", 0.0))
+        wallet    = meta.get("wallet_label") or short_addr(meta.get("wallet_address", ""))
+        tx_hash   = meta.get("tx_hash", "")
+        tx_url    = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
+        chain     = event.chain.capitalize()
+        ce        = chain_emoji(event.chain)
+
+        if direction == "OUTFLOW":
+            signal_emoji = "🔴"
+            action       = f"moved {amount} {symbol} TO {exchange}"
+            signal_label = "SELL SIGNAL"
+        else:
+            signal_emoji = "🟢"
+            action       = f"received {amount} {symbol} FROM {exchange}"
+            signal_label = "BUY SIGNAL"
+
+        post = (
+            f"{signal_emoji} Exchange Flow {ce} {chain}\n\n"
+            f"📡 {signal_label}\n"
+            f"👤 {wallet} {action}\n"
+            f"💰 {usd}"
+        )
+        if tx_url:
+            post += f"\n🔗 {tx_url}"
+        post += f"\n\n{_brand_sig()}\n#{symbol} #WhaleAlert #SmartMoney"
         return post
 
     def _render_portfolio(self, event: AlertDTO, score: float) -> str:

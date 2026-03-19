@@ -56,6 +56,8 @@ class TelegramMessageRenderer:
             text = self._render_portfolio(event, score)
         elif event.alert_type == AlertType.ACCUMULATION:
             text = self._render_accumulation(event, score)
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            text = self._render_exchange_flow(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
         return self._enforce_limit(text)
@@ -145,6 +147,40 @@ class TelegramMessageRenderer:
             f"💰 Total: <b>{total_usd}</b>  ·  Avg/tx: <b>{avg_usd}</b>\n\n"
             f"<i>{_html(_brand_sig())}</i>"
         )
+        return msg
+
+    def _render_exchange_flow(self, event: AlertDTO, score: float) -> str:
+        meta      = event.metadata
+        direction = meta.get("flow_direction", "OUTFLOW")
+        exchange  = _html(meta.get("exchange_name", "Exchange"))
+        symbol    = _html(meta.get("token_symbol", "???"))
+        amount    = fmt_number(meta.get("amount_token", 0.0))
+        usd       = fmt_usd(meta.get("amount_usd", 0.0))
+        wallet    = _html(meta.get("wallet_label") or short_addr(meta.get("wallet_address", "")))
+        tx_hash   = meta.get("tx_hash", "")
+        tx_url    = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
+        chain     = event.chain.capitalize()
+        ce        = chain_emoji(event.chain)
+
+        if direction == "OUTFLOW":
+            signal_emoji = "🔴"
+            signal_label = "SELL SIGNAL"
+            action       = f"moved {amount} {symbol} TO <b>{exchange}</b>"
+        else:
+            signal_emoji = "🟢"
+            signal_label = "BUY SIGNAL"
+            action       = f"received {amount} {symbol} FROM <b>{exchange}</b>"
+
+        msg = (
+            f"{signal_emoji} <b>Exchange Flow</b>  {ce} <b>{chain}</b>\n"
+            f"{_SEP}\n"
+            f"📡 <b>{signal_label}</b>\n"
+            f"👤 <code>{wallet}</code> {action}\n"
+            f"💰 <b>{usd}</b>"
+        )
+        if tx_url:
+            msg += f'\n🔗 <a href="{tx_url}">View Transaction</a>'
+        msg += f"\n\n<i>{_html(_brand_sig())}</i>"
         return msg
 
     def _render_portfolio(self, event: AlertDTO, score: float) -> str:

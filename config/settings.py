@@ -73,6 +73,7 @@ class TwitterConfig(BaseSettings):
     enable_price_tweets: bool = True
     enable_portfolio_tweets: bool = False   # default OFF for privacy
     enable_accumulation_tweets: bool = True
+    enable_exchange_flow_tweets: bool = True
 
     # Circuit breaker
     circuit_failure_threshold: int = 3
@@ -122,6 +123,7 @@ class TelegramChannelConfig(BaseSettings):
     enable_price_posts: bool = True
     enable_portfolio_posts: bool = False   # default OFF for privacy
     enable_accumulation_posts: bool = True
+    enable_exchange_flow_posts: bool = True
 
     # Circuit breaker (Telegram recovers quickly — short pause)
     circuit_failure_threshold: int = 3
@@ -179,6 +181,7 @@ class BlueSkyConfig(BaseSettings):
     enable_price_posts: bool = True
     enable_portfolio_posts: bool = False   # default OFF for privacy
     enable_accumulation_posts: bool = True
+    enable_exchange_flow_posts: bool = True
 
     # Circuit breaker
     circuit_failure_threshold: int = 3

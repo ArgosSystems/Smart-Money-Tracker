@@ -173,6 +173,8 @@ class TwitterBroadcaster:
             return event.metadata.get("is_public", False)
         elif event.alert_type == AlertType.ACCUMULATION:
             return cfg.enable_accumulation_tweets  # type: ignore[attr-defined]
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            return cfg.enable_exchange_flow_tweets  # type: ignore[attr-defined]
         return False
 
     def _handle_overflow(self, new_item: ScoredAlert) -> None:
@@ -383,6 +385,11 @@ class TwitterBroadcaster:
             symbol = meta.get("token_symbol")
             if addr and symbol:
                 return f"accum:{addr.lower()}:{symbol.upper()}"
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            addr = meta.get("wallet_address")
+            exchange = meta.get("exchange_address")
+            if addr and exchange:
+                return f"exflow:{addr.lower()}:{exchange.lower()}"
         return None
 
     # ── Budget management ──────────────────────────────────────────────────────
@@ -412,5 +419,6 @@ class TwitterBroadcaster:
                 "price_tweets": self._config.enable_price_tweets,  # type: ignore[attr-defined]
                 "portfolio_tweets": self._config.enable_portfolio_tweets,  # type: ignore[attr-defined]
                 "accumulation_tweets": self._config.enable_accumulation_tweets,  # type: ignore[attr-defined]
+                "exchange_flow_tweets": self._config.enable_exchange_flow_tweets,  # type: ignore[attr-defined]
             },
         }
