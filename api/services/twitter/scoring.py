@@ -67,6 +67,8 @@ class AlertScorer:
             return self._score_portfolio(event)
         elif event.alert_type == AlertType.ACCUMULATION:
             return self._score_accumulation(event)
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            return self._score_exchange_flow(event)
         return 0.0
 
     def _score_whale(self, event: AlertDTO) -> float:
@@ -116,3 +118,18 @@ class AlertScorer:
             score = min(score + 10, 95)
 
         return score
+
+    def _score_exchange_flow(self, event: AlertDTO) -> float:
+        meta = event.metadata
+        amount_usd = meta.get("amount_usd", 0.0)
+        direction  = meta.get("flow_direction", "OUTFLOW")
+
+        # OUTFLOW (sell) to major exchanges is high-signal → score 60-85
+        # INFLOW (buy)   from exchanges is medium-high     → score 50-75
+        base = 60 if direction == "OUTFLOW" else 50
+
+        # Scale linearly: $10K → base, $500K+ → base+25
+        capped = min(amount_usd, 500_000)
+        score  = base + (capped / 500_000) * 25
+
+        return min(score, 90)

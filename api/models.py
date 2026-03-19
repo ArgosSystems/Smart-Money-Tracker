@@ -517,6 +517,43 @@ class AccumulationEvent(Base):
         )
 
 
+class ExchangeFlowEvent(Base):
+    """
+    Fired when a tracked whale wallet moves tokens to/from a known exchange.
+
+    OUTFLOW = whale → exchange  (sell signal 🔴)
+    INFLOW  = exchange → whale  (accumulation signal 🟢)
+
+    Cooldown: 1 h per (wallet_address, exchange_address, token_address/symbol)
+    to prevent spam when a whale makes multiple rapid transfers to the same exchange.
+    """
+
+    __tablename__ = "exchange_flow_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    whale_alert_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("whale_alerts.id"), nullable=False, index=True
+    )
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    exchange_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    exchange_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    flow_direction: Mapped[str] = mapped_column(String(10), nullable=False)  # OUTFLOW | INFLOW
+    token_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True, index=True)
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    amount_token: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    tx_hash: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
+    fired_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ExchangeFlowEvent {self.chain}:{self.wallet_address[:8]} "
+            f"{self.flow_direction} → {self.exchange_name} "
+            f"{self.token_symbol} ${self.amount_usd:,.0f}>"
+        )
+
+
 class SeenTransaction(Base):
     """
     Lightweight deduplication table — stores tx_hash+chain of every transaction
@@ -553,6 +590,7 @@ async def init_db() -> None:
         ("twitter_posts",       "posted_at"),
         ("alert_deliveries",    "delivered_at"),
         ("accumulation_events", "fired_at"),
+        ("exchange_flow_events","fired_at"),
     ]:
         try:
             async with engine.begin() as conn:

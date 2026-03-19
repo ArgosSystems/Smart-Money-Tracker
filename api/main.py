@@ -26,6 +26,7 @@ from api.routers import (
     price_alerts, portfolio, token_safety, twitter, alert_channels, metrics, guilds,
     telegram_channel as telegram_channel_router,
     bluesky as bluesky_router,
+    exchange_flows as exchange_flows_router,
 )
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
@@ -152,6 +153,7 @@ app.include_router(bluesky_router.router)
 app.include_router(alert_channels.router)
 app.include_router(metrics.router)
 app.include_router(guilds.router)
+app.include_router(exchange_flows_router.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>

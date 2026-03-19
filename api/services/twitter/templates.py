@@ -113,6 +113,8 @@ class TweetRenderer:
             text = self._render_portfolio(event, score)
         elif event.alert_type == AlertType.ACCUMULATION:
             text = self._render_accumulation(event, score)
+        elif event.alert_type == AlertType.EXCHANGE_FLOW:
+            text = self._render_exchange_flow(event, score)
         else:
             text = f"🔔 Alert on {event.chain}: ID #{event.alert_id}"
 
@@ -249,6 +251,42 @@ class TweetRenderer:
             f"{_brand_sig()}\n"
             f"#{symbol} #{chain} #SmartMoney #OnChain #DeFi"
         )
+        return tweet
+
+    def _render_exchange_flow(self, event: AlertDTO, score: float) -> str:
+        meta      = event.metadata
+        direction = meta.get("flow_direction", "OUTFLOW")
+        exchange  = meta.get("exchange_name", "Exchange")
+        symbol    = meta.get("token_symbol", "???")
+        amount    = fmt_number(meta.get("amount_token", 0.0))
+        usd       = fmt_usd(meta.get("amount_usd", 0.0))
+        wallet    = meta.get("wallet_label") or short_addr(meta.get("wallet_address", ""))
+        tx_hash   = meta.get("tx_hash", "")
+        chain     = event.chain.capitalize()
+        ce        = chain_emoji(event.chain)
+        tx_url    = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
+
+        if direction == "OUTFLOW":
+            signal_emoji = "🔴"
+            action       = f"moved {amount} {symbol} TO {exchange}"
+            signal_label = "SELL SIGNAL"
+        else:
+            signal_emoji = "🟢"
+            action       = f"received {amount} {symbol} FROM {exchange}"
+            signal_label = "BUY SIGNAL"
+
+        tweet = (
+            f"{signal_emoji} Exchange Flow  {ce} {chain}\n\n"
+            f"📡 {signal_label}\n"
+            f"👤 {wallet} {action}\n"
+            f"💰 {usd}"
+        )
+
+        if tx_url:
+            tweet += f"\n🔗 {tx_url}"
+
+        tweet += f"\n\n{_brand_sig()}"
+        tweet += f"\n#{symbol} #{chain} #WhaleAlert #SmartMoney #DeFi"
         return tweet
 
     def _render_portfolio(self, event: AlertDTO, score: float) -> str:

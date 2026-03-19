@@ -481,6 +481,87 @@ async def cmd_accumulation_alerts(
     )
 
 
+async def cmd_exchange_flows(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /exchange_flows [chain] [OUTFLOW|INFLOW] [count]
+    Show recent whale exchange flow events.
+    OUTFLOW = whale sent tokens TO an exchange (sell 🔴)
+    INFLOW  = whale received tokens FROM an exchange (buy 🟢)
+    """
+    args      = context.args or []
+    chain     = None
+    direction = None
+    count     = 10
+
+    for arg in args:
+        if arg.lower() in VALID_CHAINS:
+            chain = arg.lower()
+        elif arg.upper() in ("OUTFLOW", "INFLOW"):
+            direction = arg.upper()
+        elif arg.isdigit():
+            count = max(1, min(int(arg), 15))
+
+    params: dict = {"limit": count}
+    if chain:
+        params["chain"] = chain
+    if direction:
+        params["direction"] = direction
+
+    data = await _get("/exchange-flows", params=params)
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no exchange flow data.")
+        return
+
+    if not data:
+        dir_label   = f" ({direction})" if direction else ""
+        chain_label = chain_badge(chain) if chain else "All Chains"
+        await update.message.reply_text(
+            tg_box(
+                f"No exchange flow events — {chain_label}{dir_label}",
+                [
+                    "No exchange flow events detected yet.",
+                    "Events fire when a tracked whale sends to or receives from a known exchange.",
+                    "Add exchange addresses to SmartLabel with entity_type = 'exchange'.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+    lines: list[str] = []
+
+    for event in data:
+        cname      = event.get("chain", "ethereum")
+        direction_ = event.get("flow_direction", "OUTFLOW")
+        exch_name  = event.get("exchange_name", "Unknown Exchange")
+        wallet     = event.get("wallet_address", "")
+        symbol     = event.get("token_symbol") or "native"
+        amount_usd = event.get("amount_usd", 0.0)
+        amount_tok = event.get("amount_token", 0.0)
+        fired      = (event.get("fired_at") or "")[:16].replace("T", " ")
+
+        signal_emoji = "🔴" if direction_ == "OUTFLOW" else "🟢"
+        action_label = f"→ {exch_name} (SELL)" if direction_ == "OUTFLOW" else f"← {exch_name} (BUY)"
+
+        lines.append(
+            f"{signal_emoji} <b>{symbol}</b> {CHAIN_EMOJI.get(cname, '')}\n"
+            f"  Wallet: <code>{short(wallet)}</code> {action_label}\n"
+            f"  {fmt_usd(amount_usd)}  ·  {amount_tok:,.4f} {symbol}\n"
+            f"  Detected: {fired} UTC"
+        )
+
+    dir_label = f" — {direction}" if direction else ""
+    await update.message.reply_text(
+        tg_box(
+            f"Exchange Flow Alerts — {chain_label}{dir_label}",
+            lines,
+            footer="Smart Money Tracker — Exchange Flow Detection",
+        ),
+        parse_mode="HTML",
+    )
+
+
 async def cmd_set_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     /set_alerts [min_score] [chains] [alert_types]
@@ -779,3 +860,4 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("who_is",               cmd_who_is))
     app.add_handler(CommandHandler("scan_token",           cmd_scan_token))
     app.add_handler(CommandHandler("twitter_status",       cmd_twitter_status))
+    app.add_handler(CommandHandler("exchange_flows",       cmd_exchange_flows))

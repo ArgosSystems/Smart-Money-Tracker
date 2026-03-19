@@ -105,3 +105,32 @@ class AccumulationAlertEvent(AlertDTO):
     """
 
     alert_type: AlertType = field(default=AlertType.ACCUMULATION, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeFlowAlertEvent(AlertDTO):
+    """
+    Fired when a tracked whale wallet moves tokens to/from a known exchange.
+
+    OUTFLOW = whale → exchange  (sell signal 🔴)
+    INFLOW  = exchange → whale  (accumulation signal 🟢)
+
+    Uses SmartLabel.entity_type == 'exchange' to identify exchange addresses.
+    Cooldown: 1 h per (wallet_address, exchange_address, token).
+
+    Expected metadata keys
+    ----------------------
+    exchange_flow_id  : int     — FK to exchange_flow_events.id
+    wallet_address    : str
+    wallet_label      : str | None
+    exchange_name     : str     — from SmartLabel.name
+    exchange_address  : str
+    flow_direction    : "OUTFLOW" | "INFLOW"
+    token_symbol      : str | None
+    token_address     : str | None
+    amount_usd        : float
+    amount_token      : float
+    tx_hash           : str
+    """
+
+    alert_type: AlertType = field(default=AlertType.EXCHANGE_FLOW, init=False)

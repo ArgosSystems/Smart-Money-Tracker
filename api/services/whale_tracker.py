@@ -56,9 +56,10 @@ from web3.types import FilterParams
 
 from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
 from api.events.dispatcher import event_dispatcher
-from api.events.types import AccumulationAlertEvent, WhaleAlertEvent
+from api.events.types import AccumulationAlertEvent, ExchangeFlowAlertEvent, WhaleAlertEvent
 from api.services.position_tracker import update_position
 from api.services.accumulation_detector import check_accumulation
+from api.services.exchange_flow_detector import check_exchange_flow
 from config.chains import CHAINS, ChainConfig, active_chains
 from config.settings import settings
 
@@ -338,8 +339,9 @@ class EvmChainScanner(BaseChainScanner):
                     self.chain_name, block_number, len(new_alerts)
                 )
 
-                # ── Phase 2: P&L + accumulation (second commit) ───────────────
+                # ── Phase 2: P&L + accumulation + exchange flow (second commit) ──
                 accumulation_events: list = []
+                exchange_flow_events: list = []
                 for alert in new_alerts:
                     try:
                         await update_position(db, alert, wallet_map)
@@ -351,6 +353,12 @@ class EvmChainScanner(BaseChainScanner):
                             accumulation_events.append((alert, acc_event))
                     except Exception as exc:
                         logger.warning("[%s] accumulation check failed: %s", self.chain_name, exc)
+                    try:
+                        ef_event = await check_exchange_flow(db, alert, wallet_map)
+                        if ef_event:
+                            exchange_flow_events.append((alert, ef_event))
+                    except Exception as exc:
+                        logger.warning("[%s] exchange flow check failed: %s", self.chain_name, exc)
                 try:
                     await db.commit()
                 except Exception as exc:
@@ -404,6 +412,28 @@ class EvmChainScanner(BaseChainScanner):
                             "avg_per_tx_usd":  acc_event.avg_per_tx_usd,
                             "window_hours":    acc_event.window_hours,
                             "wallet_label":    wallet.label if wallet else None,
+                        },
+                    ))
+
+                # ── Broadcast exchange flow alerts ────────────────────────────
+                for trigger_alert, ef_event in exchange_flow_events:
+                    wallet = wallet_map.get(ef_event.wallet_address)
+                    await event_dispatcher.dispatch(ExchangeFlowAlertEvent(
+                        alert_id=ef_event.id,
+                        chain=ef_event.chain,
+                        timestamp=ef_event.fired_at or datetime.datetime.utcnow(),
+                        metadata={
+                            "exchange_flow_id":  ef_event.id,
+                            "wallet_address":    ef_event.wallet_address,
+                            "wallet_label":      wallet.label if wallet else None,
+                            "exchange_name":     ef_event.exchange_name,
+                            "exchange_address":  ef_event.exchange_address,
+                            "flow_direction":    ef_event.flow_direction,
+                            "token_symbol":      ef_event.token_symbol,
+                            "token_address":     ef_event.token_address,
+                            "amount_usd":        ef_event.amount_usd,
+                            "amount_token":      ef_event.amount_token,
+                            "tx_hash":           ef_event.tx_hash,
                         },
                     ))
 

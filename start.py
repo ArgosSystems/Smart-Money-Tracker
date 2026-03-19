@@ -124,8 +124,9 @@ async def run_telegram_bot() -> None:
             BotCommand("who_is",               "Smart Label database lookup"),
             BotCommand("scan_token",           "Solana token safety check"),
             BotCommand("twitter_status",       "Twitter broadcaster status (admin)"),
+            BotCommand("exchange_flows",       "Whale exchange flow events (sells/buys)"),
         ])
-        logger.info("Telegram: command list registered (%d commands)", 13)
+        logger.info("Telegram: command list registered (%d commands)", 14)
 
         assert app.updater is not None, "Telegram Application has no updater"
         await app.updater.start_polling()
