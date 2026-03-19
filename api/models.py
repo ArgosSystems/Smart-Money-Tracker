@@ -31,6 +31,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -529,8 +530,11 @@ class ExchangeFlowEvent(Base):
     """
 
     __tablename__ = "exchange_flow_events"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", "fired_at", name="pk_exchange_flow_events"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, autoincrement=True)
     whale_alert_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("whale_alerts.id"), nullable=False, index=True
     )
