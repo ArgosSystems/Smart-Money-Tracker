@@ -265,5 +265,5 @@ async def trigger_analysis() -> dict:
     Trigger an immediate cluster re-analysis cycle (runs in background).
     The normal cycle runs every 10 minutes automatically.
     """
-    asyncio.create_task(_run_analysis(), name="cluster_analysis_manual")
+    asyncio.create_task(_run_analysis(set()), name="cluster_analysis_manual")
     return {"status": "analysis triggered", "message": "Cluster analysis running in background."}
