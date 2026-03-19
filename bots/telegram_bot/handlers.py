@@ -163,6 +163,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/set_alerts [min_score] [chains] [types] — push alerts to this chat",
             "/status — API health",
             "/twitter_status — Twitter broadcaster (admin only)",
+            "",
+            "<b>Clustering</b>",
+            "/clusters [chain] [count] — entities behind multiple wallets",
+            "/wallet_cluster &lt;address&gt; [chain] — which cluster owns this wallet",
         ],
         footer="Powered by Smart Money Tracker",
     )
@@ -476,6 +480,193 @@ async def cmd_accumulation_alerts(
             f"Accumulation Alerts — {chain_label}",
             lines,
             footer="Smart Money Tracker — Accumulation Detection",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_clusters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /clusters [chain] [count]
+    List detected wallet clusters — groups of wallets belonging to the same entity.
+    """
+    args  = context.args or []
+    chain = None
+    count = 8
+
+    for arg in args:
+        if arg.lower() in VALID_CHAINS:
+            chain = arg.lower()
+        elif arg.isdigit():
+            count = max(1, min(int(arg), 10))
+
+    params: dict = {"limit": count, "min_confidence": 0.6}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get("/clusters", params=params)
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no cluster data.")
+        return
+
+    if not data:
+        chain_label = chain_badge(chain) if chain else "All Chains"
+        await update.message.reply_text(
+            tg_box(
+                f"No clusters detected — {chain_label}",
+                [
+                    "No wallet clusters found with confidence ≥ 60%.",
+                    "",
+                    "<b>Detection methods:</b>",
+                    "💸 Funding — wallet A sent ETH to B; B trades same tokens",
+                    "⏱️ Timing — wallets bought same token within 5 min, 3+ times",
+                    "🔁 Pattern — 3+ wallets, same direction, same token, same hour, 2+ times",
+                    "",
+                    "Clusters appear after enough whale activity is recorded.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+    lines: list[str] = []
+
+    for cluster in data:
+        cluster_id   = cluster.get("id", "?")
+        cname        = cluster.get("chain", "ethereum")
+        label        = cluster.get("cluster_label") or f"Cluster #{cluster_id}"
+        methods_csv  = cluster.get("detection_methods", "")
+        confidence   = float(cluster.get("confidence", 0.0))
+        member_count = cluster.get("member_count", 0)
+        volume       = float(cluster.get("total_volume_usd", 0.0))
+        members      = cluster.get("members", [])
+
+        methods_str = " · ".join(
+            {"funding": "💸 Funding", "timing": "⏱️ Timing", "pattern": "🔁 Pattern"}.get(m.strip(), m)
+            for m in methods_csv.split(",") if m.strip()
+        )
+        member_addrs = " | ".join(
+            short(m["wallet_address"])
+            + (f" ({m['wallet_label']})" if m.get("wallet_label") else "")
+            for m in members[:3]
+        )
+        more = f" +{member_count - 3} more" if member_count > 3 else ""
+
+        lines.append(
+            f"🕵️ <b>{label}</b> {CHAIN_EMOJI.get(cname, '')} — {confidence * 100:.0f}% confidence\n"
+            f"  Wallets ({member_count}): {member_addrs}{more}\n"
+            f"  Volume: {fmt_usd(volume)}  |  Methods: {methods_str}"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"Wallet Clusters — {chain_label}",
+            lines,
+            footer="Smart Money Tracker — Whale Clustering (10-min refresh)",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_wallet_cluster(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /wallet_cluster <address> [chain]
+    Check which cluster (entity) a wallet address belongs to.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /wallet_cluster &lt;address&gt; [chain]", parse_mode="HTML"
+        )
+        return
+
+    address = args[0]
+    chain   = args[1].lower() if len(args) > 1 else None
+
+    if chain and chain not in VALID_CHAINS:
+        await update.message.reply_text(
+            f"Unknown chain <b>{chain}</b>. Valid: {', '.join(sorted(VALID_CHAINS))}",
+            parse_mode="HTML",
+        )
+        return
+
+    params: dict = {}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get(f"/clusters/wallet/{address}", params=params)
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error looking up wallet cluster.")
+        return
+
+    if not data:
+        chain_label = chain_badge(chain) if chain else "any chain"
+        await update.message.reply_text(
+            tg_box(
+                "Wallet not in any cluster",
+                [
+                    f"<code>{address}</code> is not part of any detected cluster on {chain_label}.",
+                    "",
+                    "This means no coordination signals were found with other tracked wallets.",
+                    "Clustering runs every 10 minutes — check back after more activity is recorded.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    lines: list[str] = []
+
+    for cluster in data:
+        cluster_id   = cluster.get("id", "?")
+        cname        = cluster.get("chain", "ethereum")
+        label        = cluster.get("cluster_label") or f"Cluster #{cluster_id}"
+        methods_csv  = cluster.get("detection_methods", "")
+        confidence   = float(cluster.get("confidence", 0.0))
+        member_count = cluster.get("member_count", 0)
+        volume       = float(cluster.get("total_volume_usd", 0.0))
+        members      = cluster.get("members", [])
+
+        # Find how this wallet was linked
+        my_sigs = methods_csv
+        for m in members:
+            if m.get("wallet_address", "").lower() == address.lower():
+                my_sigs = m.get("detection_signals", methods_csv)
+                break
+
+        sig_str = " · ".join(
+            {"funding": "💸 Funding", "timing": "⏱️ Timing", "pattern": "🔁 Pattern"}.get(s.strip(), s)
+            for s in my_sigs.split(",") if s.strip()
+        )
+
+        # Other members (exclude queried wallet)
+        others = [
+            m for m in members
+            if m.get("wallet_address", "").lower() != address.lower()
+        ]
+        others_str = " | ".join(
+            short(m["wallet_address"])
+            + (f" ({m['wallet_label']})" if m.get("wallet_label") else "")
+            for m in others[:4]
+        )
+        if member_count - 1 > 4:
+            others_str += f" +{member_count - 5} more"
+
+        lines.append(
+            f"🕵️ <b>{label}</b> {CHAIN_EMOJI.get(cname, '')} — {confidence * 100:.0f}% confidence\n"
+            f"  Linked by: {sig_str}\n"
+            f"  Co-wallets: {others_str or '—'}\n"
+            f"  Combined volume: {fmt_usd(volume)}\n"
+            f"  Use /clusters for full list"
+        )
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+    await update.message.reply_text(
+        tg_box(
+            f"Cluster Membership — {short(address)}",
+            lines,
+            footer="Smart Money Tracker — Wallet Clustering",
         ),
         parse_mode="HTML",
     )
@@ -861,3 +1052,5 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("scan_token",           cmd_scan_token))
     app.add_handler(CommandHandler("twitter_status",       cmd_twitter_status))
     app.add_handler(CommandHandler("exchange_flows",       cmd_exchange_flows))
+    app.add_handler(CommandHandler("clusters",             cmd_clusters))
+    app.add_handler(CommandHandler("wallet_cluster",       cmd_wallet_cluster))

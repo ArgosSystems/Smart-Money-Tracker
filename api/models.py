@@ -558,6 +558,81 @@ class ExchangeFlowEvent(Base):
         )
 
 
+class WalletCluster(Base):
+    """
+    A detected group of wallet addresses likely belonging to the same entity.
+
+    Whales often split funds across 10-20 wallets to obscure position size.
+    Clustering reveals the REAL position by grouping coordinated wallets.
+
+    Detection methods (stored as comma-separated string in detection_methods):
+      funding  — wallet A directly sent ETH/native to wallet B (SEND), B trades same tokens
+      timing   — wallets bought the same token within 5 min of each other, 3+ times
+      pattern  — 3+ wallets moved same direction on same token in same hour, repeated 2+ times
+
+    Never contains addresses with entity_type = 'exchange' in SmartLabel.
+    """
+
+    __tablename__ = "wallet_clusters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    cluster_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    detection_methods: Mapped[str] = mapped_column(String(50), nullable=False)  # CSV
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_volume_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    first_detected_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    last_updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    members: Mapped[list["ClusterMembership"]] = relationship(
+        "ClusterMembership", back_populates="cluster", lazy="select",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<WalletCluster #{self.id} {self.chain} "
+            f"members={self.member_count} confidence={self.confidence:.2f} "
+            f"methods={self.detection_methods}>"
+        )
+
+
+class ClusterMembership(Base):
+    """
+    Associates a tracked wallet address with a detected WalletCluster.
+
+    detection_signals: CSV of methods that linked this wallet (e.g., "funding,timing").
+    """
+
+    __tablename__ = "cluster_memberships"
+    __table_args__ = (
+        UniqueConstraint("cluster_id", "wallet_address", "chain", name="uq_cluster_member"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cluster_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("wallet_clusters.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    wallet_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    detection_signals: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    added_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    cluster: Mapped["WalletCluster"] = relationship("WalletCluster", back_populates="members")
+
+    def __repr__(self) -> str:
+        return (
+            f"<ClusterMembership cluster={self.cluster_id} "
+            f"{self.chain}:{self.wallet_address[:8]} signals={self.detection_signals}>"
+        )
+
+
 class SeenTransaction(Base):
     """
     Lightweight deduplication table — stores tx_hash+chain of every transaction

@@ -27,6 +27,7 @@ from api.routers import (
     telegram_channel as telegram_channel_router,
     bluesky as bluesky_router,
     exchange_flows as exchange_flows_router,
+    clusters as clusters_router,
 )
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
@@ -46,11 +47,12 @@ logger = logging.getLogger(__name__)
 _tracker_task: asyncio.Task | None = None
 _price_checker_task: asyncio.Task | None = None
 _portfolio_task: asyncio.Task | None = None
+_cluster_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _tracker_task, _price_checker_task, _portfolio_task
+    global _tracker_task, _price_checker_task, _portfolio_task, _cluster_task
 
     await init_db()
     logger.info("Running database migration (safe on fresh DB)…")
@@ -67,6 +69,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting PortfolioTracker…")
     port_tracker = PortfolioTracker()
     _portfolio_task = asyncio.create_task(port_tracker.start(), name="portfolio_tracker")
+
+    logger.info("Starting ClusterAnalyzer…")
+    from api.services.cluster_detector import ClusterAnalyzer  # noqa: PLC0415
+    cluster_analyzer = ClusterAnalyzer()
+    _cluster_task = asyncio.create_task(cluster_analyzer.start(), name="cluster_analyzer")
 
     # ── Event dispatcher + broadcaster plugins ─────────────────────────────
     logger.info("Initializing EventDispatcher…")
@@ -111,7 +118,7 @@ async def lifespan(app: FastAPI):
 
     await event_dispatcher.stop_all()
 
-    for task in (_tracker_task, _price_checker_task, _portfolio_task):
+    for task in (_tracker_task, _price_checker_task, _portfolio_task, _cluster_task):
         if task and not task.done():
             task.cancel()
             try:
@@ -154,6 +161,7 @@ app.include_router(alert_channels.router)
 app.include_router(metrics.router)
 app.include_router(guilds.router)
 app.include_router(exchange_flows_router.router)
+app.include_router(clusters_router.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>

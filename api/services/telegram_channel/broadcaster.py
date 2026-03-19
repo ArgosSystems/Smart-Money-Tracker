@@ -31,7 +31,7 @@ from api.events.protocol import AlertDTO, AlertType
 from api.services.telegram_channel.client import TelegramChannelClient, TelegramChannelClientError
 from api.services.telegram_channel.templates import TelegramMessageRenderer
 from api.services.twitter.circuit_breaker import CircuitBreaker
-from api.services.twitter.rate_limiter import EntityCooldownTracker, TokenBucketRateLimiter
+from api.services.twitter.rate_limiter import EntityCooldownTracker, TokenBucketRateLimiter, get_reserve_type
 from api.services.twitter.scoring import AlertScorer, ScoredAlert
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,10 @@ class TelegramChannelBroadcaster:
         self._rate_limiter = TokenBucketRateLimiter(
             daily_budget=config.daily_budget,  # type: ignore[attr-defined]
             hourly_cap=config.hourly_cap,  # type: ignore[attr-defined]
-            critical_reserve_pct=config.critical_reserve_pct,  # type: ignore[attr-defined]
+            reserve_whale=config.budget_reserve_whale,  # type: ignore[attr-defined]
+            reserve_exchange_flow=config.budget_reserve_exchange_flow,  # type: ignore[attr-defined]
+            reserve_accumulation=config.budget_reserve_accumulation,  # type: ignore[attr-defined]
+            reserve_price=config.budget_reserve_price,  # type: ignore[attr-defined]
         )
         self._cooldown = EntityCooldownTracker(
             wallet_cooldown_hours=config.cooldown_wallet_hours,  # type: ignore[attr-defined]
@@ -233,13 +236,12 @@ class TelegramChannelBroadcaster:
             return
 
         # Gate 2: Rate limiter
-        critical_score = getattr(self._config, "critical_score", 80.0)
-        is_critical = score >= critical_score
-        if not self._rate_limiter.acquire(is_critical=is_critical):
+        reserve_type = get_reserve_type(event.alert_type.value, score)
+        if not self._rate_limiter.acquire(reserve_type=reserve_type):
             logger.warning(
-                "TelegramChannel rate limit hit — dropping alert #%d score=%.1f "
+                "TelegramChannel rate limit hit — dropping alert #%d score=%.1f pool=%s "
                 "(remaining today=%d, hour=%d)",
-                event.alert_id, score,
+                event.alert_id, score, reserve_type,
                 self._rate_limiter.remaining_today,
                 self._rate_limiter.remaining_this_hour,
             )
@@ -335,9 +337,8 @@ class TelegramChannelBroadcaster:
     # ── Budget management ──────────────────────────────────────────────────────
 
     def reset_budget(self) -> dict:
-        """Clear both rate-limiter windows. Returns the new budget snapshot."""
-        self._rate_limiter._daily_posts.clear()
-        self._rate_limiter._hourly_posts.clear()
+        """Clear all rate-limiter windows. Returns the new budget snapshot."""
+        self._rate_limiter.reset()
         logger.warning("TelegramChannel rate-limiter budget manually reset")
         return self._rate_limiter.info
 

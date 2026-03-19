@@ -54,6 +54,12 @@ class TwitterConfig(BaseSettings):
     critical_score: float = 80.0   # alerts >= this score get reserve pool access (TWITTER_CRITICAL_SCORE)
     min_score: float = 35.0        # alerts below this are skipped before queuing (TWITTER_MIN_SCORE)
 
+    # Per-alert-type reserve pools (absolute post counts within the daily budget)
+    budget_reserve_whale: int = 10          # TWITTER_BUDGET_RESERVE_WHALE
+    budget_reserve_exchange_flow: int = 10  # TWITTER_BUDGET_RESERVE_EXCHANGE_FLOW
+    budget_reserve_accumulation: int = 10   # TWITTER_BUDGET_RESERVE_ACCUMULATION
+    budget_reserve_price: int = 5           # TWITTER_BUDGET_RESERVE_PRICE
+
     # Scoring weights
     scoring_weights: dict = {
         "whale_exchange_500k": 90,
@@ -103,6 +109,12 @@ class TelegramChannelConfig(BaseSettings):
     critical_reserve_pct: float = 0.10
     critical_score: float = 80.0   # alerts >= this score get reserve pool access (TELEGRAM_CHANNEL_CRITICAL_SCORE)
     min_score: float = 0.0         # no floor by default — Telegram has generous budget (TELEGRAM_CHANNEL_MIN_SCORE)
+
+    # Per-alert-type reserve pools (absolute post counts within the daily budget)
+    budget_reserve_whale: int = 40          # TELEGRAM_CHANNEL_BUDGET_RESERVE_WHALE
+    budget_reserve_exchange_flow: int = 40  # TELEGRAM_CHANNEL_BUDGET_RESERVE_EXCHANGE_FLOW
+    budget_reserve_accumulation: int = 40   # TELEGRAM_CHANNEL_BUDGET_RESERVE_ACCUMULATION
+    budget_reserve_price: int = 20          # TELEGRAM_CHANNEL_BUDGET_RESERVE_PRICE
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {
@@ -161,6 +173,12 @@ class BlueSkyConfig(BaseSettings):
     # Keeps tiny whale alerts ($10K–$30K) from burning the daily budget.
     # Override with BLUESKY_MIN_SCORE in .env.
     min_score: float = 35.0
+
+    # Per-alert-type reserve pools (absolute post counts within the daily budget)
+    budget_reserve_whale: int = 10          # BLUESKY_BUDGET_RESERVE_WHALE
+    budget_reserve_exchange_flow: int = 10  # BLUESKY_BUDGET_RESERVE_EXCHANGE_FLOW
+    budget_reserve_accumulation: int = 10   # BLUESKY_BUDGET_RESERVE_ACCUMULATION
+    budget_reserve_price: int = 5           # BLUESKY_BUDGET_RESERVE_PRICE
 
     # Scoring weights (same defaults as Twitter)
     scoring_weights: dict = {

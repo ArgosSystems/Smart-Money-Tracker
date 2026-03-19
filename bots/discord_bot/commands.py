@@ -19,6 +19,7 @@ Command groups
   P&L             (cmd_pnl.py)           — /wallet_pnl
   Accumulation    (cmd_accumulation.py)  — /accumulation_alerts
   Exchange Flows  (cmd_exchange_flows.py)— /exchange_flows
+  Clusters        (cmd_clusters.py)      — /clusters, /cluster_info, /wallet_cluster
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from .cmd_accumulation import setup_accumulation
 from .cmd_telegram_channel import setup_telegram_channel
 from .cmd_bluesky import setup_bluesky
 from .cmd_exchange_flows import setup_exchange_flows
+from .cmd_clusters import setup_clusters
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -57,3 +59,4 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_telegram_channel(bot)
     setup_bluesky(bot)
     setup_exchange_flows(bot)
+    setup_clusters(bot)

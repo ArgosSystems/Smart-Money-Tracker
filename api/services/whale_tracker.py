@@ -60,6 +60,7 @@ from api.events.types import AccumulationAlertEvent, ExchangeFlowAlertEvent, Wha
 from api.services.position_tracker import update_position
 from api.services.accumulation_detector import check_accumulation
 from api.services.exchange_flow_detector import check_exchange_flow
+from api.services.cluster_detector import get_wallet_cluster_info
 from config.chains import CHAINS, ChainConfig, active_chains
 from config.settings import settings
 
@@ -368,6 +369,17 @@ class EvmChainScanner(BaseChainScanner):
                 # ── Broadcast whale alerts ────────────────────────────────────
                 for alert in new_alerts:
                     wallet = wallet_map.get(alert.from_address) or wallet_map.get(alert.to_address)
+                    # Determine which address is the tracked whale wallet for cluster lookup
+                    whale_wallet_addr = (
+                        alert.from_address if alert.direction in ("SELL", "SEND")
+                        else alert.to_address
+                    )
+                    cluster_info: Optional[dict] = None
+                    try:
+                        cluster_info = await get_wallet_cluster_info(db, whale_wallet_addr, alert.chain)
+                    except Exception as exc:
+                        logger.debug("[%s] cluster lookup failed: %s", self.chain_name, exc)
+
                     await event_dispatcher.dispatch(WhaleAlertEvent(
                         alert_id=alert.id,
                         chain=alert.chain,
@@ -392,6 +404,13 @@ class EvmChainScanner(BaseChainScanner):
                             "from_smart_label_tier": alert.from_smart_label_tier if hasattr(alert, 'from_smart_label_tier') else None,
                             "to_smart_label_name":   alert.to_smart_label_name if hasattr(alert, 'to_smart_label_name') else None,
                             "to_smart_label_tier":   alert.to_smart_label_tier if hasattr(alert, 'to_smart_label_tier') else None,
+                            # Cluster enrichment — populated once clusters are detected
+                            "cluster_id":         cluster_info["cluster_id"]         if cluster_info else None,
+                            "cluster_label":      cluster_info["cluster_label"]      if cluster_info else None,
+                            "cluster_confidence": cluster_info["cluster_confidence"] if cluster_info else None,
+                            "cluster_size":       cluster_info["cluster_size"]       if cluster_info else None,
+                            "cluster_methods":    cluster_info["detection_methods"]  if cluster_info else None,
+                            "cluster_volume_usd": cluster_info["total_volume_usd"]  if cluster_info else None,
                         },
                     ))
 

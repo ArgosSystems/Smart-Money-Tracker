@@ -42,6 +42,14 @@ class WhaleAlertEvent(AlertDTO):
     from_smart_label_tier: str | None
     to_smart_label_name  : str | None
     to_smart_label_tier  : str | None
+
+    Cluster enrichment (set when the whale wallet belongs to a detected cluster):
+    cluster_id         : int | None    — FK to wallet_clusters.id
+    cluster_label      : str | None    — human-readable label, e.g. "Whale X's Cluster"
+    cluster_confidence : float | None  — 0.0-1.0 detection confidence
+    cluster_size       : int | None    — number of wallets in the cluster
+    cluster_methods    : str | None    — CSV of detection methods, e.g. "funding,timing"
+    cluster_volume_usd : float | None  — combined USD volume across all cluster members
     """
 
     alert_type: AlertType = field(default=AlertType.WHALE, init=False)
