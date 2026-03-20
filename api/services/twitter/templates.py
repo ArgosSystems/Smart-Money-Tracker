@@ -25,12 +25,25 @@ logger = logging.getLogger(__name__)
 
 
 def _brand_sig() -> str:
-    """One-line brand signature appended to every tweet."""
+    """
+    One-line brand signature appended to every tweet.
+
+    Includes abbreviated GitHub and Discord links (https:// stripped) when
+    configured so the footer stays within the 280-char budget.
+    """
     try:
         from config.settings import settings  # noqa: PLC0415
-        return f"— {settings.brand_name}"
+        parts: list[str] = [settings.brand_name]
+        if settings.brand_github_url:
+            gh = settings.brand_github_url.replace("https://", "").replace("http://", "").rstrip("/")
+            parts.append(gh)
+        if settings.brand_discord_invite:
+            dc = settings.brand_discord_invite.replace("https://", "").replace("http://", "").rstrip("/")
+            parts.append(dc)
+        return "📡 " + "  ·  ".join(parts)
     except Exception:
-        return "— Smart Money Tracker"
+        return "📡 Smart Money Tracker"
+
 
 MAX_TWEET_LENGTH = 280
 
@@ -55,7 +68,7 @@ def fmt_usd(v: float) -> str:
 def short_addr(addr: str) -> str:
     """Truncate address: keep first 6, last 4."""
     if len(addr) > 12:
-        return f"{addr[:6]}...{addr[-4:]}"
+        return f"{addr[:6]}…{addr[-4:]}"
     return addr
 
 
@@ -93,6 +106,12 @@ def _rocket_emojis(pct: float) -> str:
     return "📈"
 
 
+def _conf_bar(confidence: float, width: int = 6) -> str:
+    """Compact ASCII confidence bar: ████░░ 85%"""
+    filled = round(confidence * width)
+    return "█" * filled + "░" * (width - filled)
+
+
 # ── Template renderers ────────────────────────────────────────────────────────
 
 class TweetRenderer:
@@ -100,7 +119,7 @@ class TweetRenderer:
     Renders AlertDTO events into tweet-ready text strings.
 
     Respects the 280-character limit.  If content is too long, truncates
-    the explorer link first, then the description.
+    the last line first (hashtags), then hard-truncates.
     """
 
     def render(self, event: AlertDTO, score: float) -> str:
@@ -157,15 +176,15 @@ class TweetRenderer:
     # ── Per-type renderers ─────────────────────────────────────────────────────
 
     def _render_whale(self, event: AlertDTO, score: float) -> str:
-        meta = event.metadata
-        chain = event.chain.capitalize()
-        ce = chain_emoji(event.chain)
-        de = direction_emoji(meta.get("direction", "SEND"))
-
-        amount = fmt_number(meta.get("amount_token", 0))
-        usd = fmt_usd(meta.get("amount_usd", 0))
-        symbol = meta.get("token_symbol", "???")
+        meta      = event.metadata
+        chain     = event.chain.capitalize()
+        ce        = chain_emoji(event.chain)
+        de        = direction_emoji(meta.get("direction", "SEND"))
+        amount    = fmt_number(meta.get("amount_token", 0))
+        usd       = fmt_usd(meta.get("amount_usd", 0))
+        symbol    = meta.get("token_symbol", "???")
         direction = meta.get("direction", "SEND")
+        action    = {"BUY": "bought", "SELL": "sold", "SEND": "moved"}.get(direction, "moved")
 
         from_label = (
             meta.get("from_smart_label_name")
@@ -179,21 +198,27 @@ class TweetRenderer:
         )
 
         tx_hash = meta.get("tx_hash", "")
-        tx_url = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
-        action = {"BUY": "bought", "SELL": "sold", "SEND": "moved"}.get(direction, "transferred")
+        tx_url  = chain_explorer_url(tx_hash, event.chain) if tx_hash else ""
+
+        # Cluster context line (optional)
+        cluster_line = ""
+        if meta.get("cluster_label"):
+            cluster_line = f"\n🕵️ Cluster: {meta['cluster_label']}"
 
         if score > 80:
             tweet = (
-                f"🚨 Whale Alert  {ce} {chain}\n\n"
+                f"🚨 WHALE ALERT  {ce} {chain}\n\n"
                 f"{de} {direction}  ·  {symbol}  ·  {usd}\n"
                 f"📦 {amount} {symbol}\n"
-                f"👤 {from_label} → {to_label}"
+                f"👤 {from_label} ➜ {to_label}"
+                f"{cluster_line}"
             )
         else:
             tweet = (
                 f"🐋 Whale Alert  {ce} {chain}\n\n"
                 f"{from_label} {action} {amount} {symbol} ({usd})\n"
-                f"👤 → {to_label}"
+                f"👤 ➜ {to_label}"
+                f"{cluster_line}"
             )
 
         if tx_url:
@@ -204,14 +229,14 @@ class TweetRenderer:
         return tweet
 
     def _render_price(self, event: AlertDTO, score: float) -> str:
-        meta = event.metadata
-        symbol = meta.get("token_symbol", "???")
-        current = meta.get("current_price_usd", 0.0)
-        target = meta.get("target_price_usd", 0.0)
-        condition = meta.get("condition", "above")
+        meta       = event.metadata
+        symbol     = meta.get("token_symbol", "???")
+        current    = meta.get("current_price_usd", 0.0)
+        target     = meta.get("target_price_usd", 0.0)
+        condition  = meta.get("condition", "above")
         pct_change = meta.get("pct_change_24h", 0.0) or 0.0
-        chain = event.chain.capitalize()
-        ce = chain_emoji(event.chain)
+        chain      = event.chain.capitalize()
+        ce         = chain_emoji(event.chain)
 
         direction_word = "broke above" if condition == "above" else "dropped below"
         rockets = _rocket_emojis(abs(pct_change)) if condition == "above" else "📉"
@@ -223,7 +248,7 @@ class TweetRenderer:
         )
 
         if pct_change:
-            sign = "+" if pct_change > 0 else ""
+            sign  = "+" if pct_change > 0 else ""
             tweet += f"\n📊 24h: {sign}{pct_change:.1f}%"
 
         label = meta.get("label")
@@ -235,23 +260,23 @@ class TweetRenderer:
         return tweet
 
     def _render_accumulation(self, event: AlertDTO, score: float) -> str:
-        meta = event.metadata
-        wallet = meta.get("wallet_address", "")
+        meta         = event.metadata
+        wallet       = meta.get("wallet_address", "")
         wallet_label = meta.get("wallet_label") or short_addr(wallet)
-        symbol = meta.get("token_symbol", "???")
-        buy_count = meta.get("buy_count", 0)
-        total_usd = fmt_usd(meta.get("total_usd", 0.0))
+        symbol       = meta.get("token_symbol", "???")
+        buy_count    = meta.get("buy_count", 0)
+        total_usd    = fmt_usd(meta.get("total_usd", 0.0))
         window_hours = meta.get("window_hours", 24)
-        avg_usd = fmt_usd(meta.get("avg_per_tx_usd", 0.0))
-        chain = event.chain.capitalize()
-        ce = chain_emoji(event.chain)
+        avg_usd      = fmt_usd(meta.get("avg_per_tx_usd", 0.0))
+        chain        = event.chain.capitalize()
+        ce           = chain_emoji(event.chain)
 
         tweet = (
-            f"🔁 Accumulation Alert  {ce} {chain}\n\n"
-            f"👤 {wallet_label} bought {symbol} {buy_count}× in {window_hours}h\n"
+            f"📈 Accumulation Signal  {ce} {chain}\n\n"
+            f"🔁 {wallet_label} bought {symbol} {buy_count}× in {window_hours}h\n"
             f"💰 Total: {total_usd}  ·  Avg/tx: {avg_usd}\n\n"
             f"{_brand_sig()}\n"
-            f"#{symbol} #{chain} #SmartMoney #OnChain #DeFi"
+            f"#{symbol} #{chain} #SmartMoney #OnChain"
         )
         return tweet
 
@@ -272,11 +297,13 @@ class TweetRenderer:
             for m in methods_csv.split(",") if m.strip()
         ) or "Unknown"
 
+        conf = f"{confidence * 100:.0f}%"
+
         tweet = (
-            f"🕵️ Whale Cluster Detected  {ce} {chain}\n\n"
-            f"👥 {label} — {member_count} coordinated wallets\n"
-            f"💰 Combined volume: {fmt_usd(volume)}\n"
-            f"🎯 Confidence: {confidence * 100:.0f}%  ·  {methods_str}\n\n"
+            f"🕵️ Whale Cluster  {ce} {chain}\n\n"
+            f"👥 {label} — {member_count} wallets\n"
+            f"💰 Combined: {fmt_usd(volume)}\n"
+            f"🎯 {conf} confidence  ·  {methods_str}\n\n"
             f"{_brand_sig()}\n"
             f"#WhaleCluster #{chain} #SmartMoney #DeFi"
         )
@@ -315,7 +342,7 @@ class TweetRenderer:
             tweet += f"\n🔗 {tx_url}"
 
         tweet += f"\n\n{_brand_sig()}"
-        tweet += f"\n#{symbol} #{chain} #WhaleAlert #SmartMoney #DeFi"
+        tweet += f"\n#{symbol} #{chain} #ExchangeFlow #SmartMoney"
         return tweet
 
     def _render_portfolio(self, event: AlertDTO, score: float) -> str:
@@ -327,20 +354,20 @@ class TweetRenderer:
 
         change_pct = meta.get("balance_change_pct", 0.0)
         change_usd = meta.get("balance_change_usd", 0.0)
-        total_usd = fmt_usd(meta.get("current_total_usd", 0.0))
-        symbol = meta.get("native_symbol", "")
-        chain = event.chain.capitalize()
-        ce = chain_emoji(event.chain)
+        total_usd  = fmt_usd(meta.get("current_total_usd", 0.0))
+        symbol     = meta.get("native_symbol", "")
+        chain      = event.chain.capitalize()
+        ce         = chain_emoji(event.chain)
 
         direction = "📈" if change_pct >= 0 else "📉"
-        sign = "+" if change_pct >= 0 else ""
+        sign      = "+" if change_pct >= 0 else ""
 
         tweet = (
             f"{direction} Portfolio Update  {ce} {chain}\n\n"
             f"💼 {sign}{change_pct:.1f}%  ({sign}{fmt_usd(abs(change_usd))})\n"
             f"📊 Total: {total_usd} {symbol}\n\n"
             f"{_brand_sig()}\n"
-            f"#{chain} #Portfolio #SmartMoney #DeFi"
+            f"#{chain} #Portfolio #SmartMoney"
         )
         return tweet
 
@@ -351,7 +378,7 @@ class TweetRenderer:
         if len(text) <= MAX_TWEET_LENGTH:
             return text
 
-        # Try removing the last line (usually the explorer link)
+        # Try removing the last line (usually hashtags)
         lines = text.rstrip().split("\n")
         if len(lines) > 1:
             shortened = "\n".join(lines[:-1])
