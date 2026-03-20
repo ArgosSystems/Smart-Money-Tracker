@@ -232,6 +232,29 @@ _COMMANDS: dict[str, dict] = {
         "params": [],
         "tip": "Requires DISCORD_CLIENT_ID to be set in .env. The link includes bot + applications.commands scopes by default.",
     },
+    # Cross-Chain Entity
+    "entity": {
+        "category": "Cross-Chain",
+        "emoji": "🌐",
+        "short": "Cross-chain entity profile — see what one entity is doing across ALL chains.",
+        "usage": "/entity <name_or_address> [hours]",
+        "params": [
+            ("name", "Required", "Entity name (e.g. 'Jump Trading') or wallet address (0x...)"),
+            ("hours", "Optional", "Activity look-back window in hours (1–168, default 24)"),
+        ],
+        "tip": "Pass a wallet address to auto-resolve to its entity, or use the entity name directly.",
+    },
+    "entity_lookup": {
+        "category": "Cross-Chain",
+        "emoji": "🌐",
+        "short": "Resolve any wallet address to its cross-chain entity.",
+        "usage": "/entity_lookup <address> [chain]",
+        "params": [
+            ("address", "Required", "Wallet address (0x...)"),
+            ("chain", "Optional", "Hint chain to narrow search"),
+        ],
+        "tip": "Use /entity <name> after lookup to see the full cross-chain activity and P&L.",
+    },
 }
 
 # Build choices list (max 25 for Discord)
@@ -255,6 +278,7 @@ def _build_overview() -> list[str]:
         "Portfolio":      "📁",
         "Price Alerts":   "🔔",
         "Info":           "ℹ️",
+        "Cross-Chain":    "🌐",
     }
     lines = []
     for cat, cmds in categories.items():

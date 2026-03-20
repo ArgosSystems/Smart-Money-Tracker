@@ -30,6 +30,7 @@ from api.routers import (
     clusters as clusters_router,
     backtest as backtest_router,
     insights as insights_router,
+    cross_chain as cross_chain_router,
 )
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
@@ -178,6 +179,7 @@ app.include_router(exchange_flows_router.router)
 app.include_router(clusters_router.router)
 app.include_router(backtest_router.router)
 app.include_router(insights_router.router)
+app.include_router(cross_chain_router.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>

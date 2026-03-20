@@ -17,6 +17,8 @@ Commands
 /set_alerts [min_score] [chains] [types] – enable alert push for this chat
 /who_is <address> [chain]              – Smart Label database lookup
 /scan_token <mint>                     – Solana token safety check
+/entity <name_or_address> [hours]      – cross-chain entity profile
+/entity_lookup <address> [chain]       – resolve address to entity
 /twitter_status                        – Twitter broadcaster status (admin only)
 
 Formatting uses Telegram HTML parse_mode to match the Discord CV2 style.
@@ -164,6 +166,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/status — API health",
             "/twitter_status — Twitter broadcaster (admin only)",
             "/bot_stats — signal win rate and avg gains",
+            "",
+            "<b>Cross-Chain Entity</b>",
+            "/entity &lt;name_or_address&gt; [hours] — cross-chain entity profile",
+            "/entity_lookup &lt;address&gt; [chain] — resolve address to entity",
             "",
             "<b>Clustering</b>",
             "/clusters [chain] [count] — entities behind multiple wallets",
@@ -1308,6 +1314,255 @@ async def cmd_wallet_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+async def cmd_entity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /entity <name_or_address> [hours]
+    Cross-chain entity profile — see what one entity is doing across ALL chains.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /entity &lt;name_or_address&gt; [hours]", parse_mode="HTML"
+        )
+        return
+
+    # Last arg might be hours
+    hours = 24
+    if len(args) >= 2 and args[-1].isdigit():
+        hours = max(1, min(int(args[-1]), 168))
+        name = " ".join(args[:-1])
+    else:
+        name = " ".join(args)
+
+    # If it looks like an address, resolve to entity first
+    if name.startswith("0x") and len(name) == 42:
+        lookup = await _get(f"/entity/lookup/{name}")
+        if lookup is None:
+            await update.message.reply_text(
+                tg_box(
+                    "Unknown address",
+                    [
+                        f"<code>{short(name)}</code> is not in the SmartLabel database.",
+                        "Only labelled entities (exchanges, VCs, funds, etc.) can be looked up.",
+                    ],
+                ),
+                parse_mode="HTML",
+            )
+            return
+        entity_name = lookup.get("entity_name", name)
+    else:
+        entity_name = name
+
+    data = await _get(f"/entity/{entity_name}", params={"hours": hours})
+    if data is None:
+        await update.message.reply_text(
+            tg_box(
+                "Entity not found",
+                [
+                    f"No entity matching <b>{entity_name}</b> found.",
+                    "Use /entity_lookup &lt;address&gt; to find the entity for a specific wallet.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    e_name = data.get("entity_name", entity_name)
+    e_type = data.get("entity_type", "unknown")
+    addresses = data.get("addresses", [])
+    chains_active = data.get("chains_active_today", [])
+    total_vol = data.get("total_volume_usd", 0.0)
+    buy_vol = data.get("buy_volume_usd", 0.0)
+    sell_vol = data.get("sell_volume_usd", 0.0)
+    alert_count = data.get("alert_count", 0)
+    per_chain = data.get("per_chain", {})
+    recent = data.get("recent_alerts", [])
+    pnl = data.get("pnl", {})
+
+    # Group addresses by chain
+    chains_map: dict[str, list[dict]] = {}
+    for a in addresses:
+        chains_map.setdefault(a["chain"], []).append(a)
+
+    type_emoji = {
+        "exchange": "🏦", "vc": "🏢", "founder": "👤",
+        "foundation": "🏛️", "dao": "🗳️", "bridge": "🌉",
+        "defi": "🔄", "staking": "📊", "lending": "💰",
+        "mev": "🤖", "custodian": "🔐",
+    }.get(e_type, "🔍")
+
+    sentiment = "📈 Net buying" if buy_vol > sell_vol else "📉 Net selling" if sell_vol > buy_vol else "⚖️ Balanced"
+
+    lines: list[str] = [
+        f"<b>{type_emoji} {e_name}</b>  ·  {e_type.replace('_', ' ').title()}",
+        f"📡 {len(addresses)} known address(es) across {len(chains_map)} chain(s)",
+    ]
+
+    if chains_active:
+        active_badges = " · ".join(
+            f"{CHAIN_EMOJI.get(c, '')} {c.capitalize()}" for c in chains_active
+        )
+        lines.append(f"⚡ Active in last {hours}h: {active_badges}")
+    else:
+        lines.append(f"💤 No activity in the last {hours}h")
+
+    if alert_count > 0:
+        lines.append(
+            f"💰 <b>{fmt_usd(total_vol)}</b> total volume  ·  "
+            f"🟢 {fmt_usd(buy_vol)} buys  ·  🔴 {fmt_usd(sell_vol)} sells"
+        )
+        lines.append(f"📊 {alert_count} alert(s)  ·  {sentiment}")
+
+    if per_chain:
+        lines.append("")
+        lines.append("<b>Per-chain breakdown:</b>")
+        for chain_name, stats in sorted(per_chain.items()):
+            c_emoji = CHAIN_EMOJI.get(chain_name, "")
+            cv = stats.get("volume_usd", 0)
+            ca = stats.get("alert_count", 0)
+            cb = stats.get("buy_count", 0)
+            cs = stats.get("sell_count", 0)
+            lines.append(
+                f"{c_emoji} <b>{chain_name.capitalize()}</b> — {fmt_usd(cv)}  ·  "
+                f"{ca} alerts  ·  🟢{cb} 🔴{cs}"
+            )
+
+    realized = pnl.get("total_realized_usd", 0.0)
+    bought = pnl.get("total_bought_usd", 0.0)
+    sold = pnl.get("total_sold_usd", 0.0)
+    positions = pnl.get("positions", 0)
+
+    if positions > 0:
+        pnl_emoji = "📈" if realized >= 0 else "📉"
+        sign = "+" if realized >= 0 else ""
+        lines.append("")
+        lines.append(
+            f"<b>Combined P&amp;L</b> ({positions} positions)\n"
+            f"{pnl_emoji} Realized: <b>{sign}{fmt_usd(realized)}</b>  ·  "
+            f"Bought: {fmt_usd(bought)}  ·  Sold: {fmt_usd(sold)}"
+        )
+
+    lines.append("")
+    lines.append("<b>Known addresses:</b>")
+    for chain_name, addrs in sorted(chains_map.items()):
+        c_emoji = CHAIN_EMOJI.get(chain_name, "")
+        addr_parts = " · ".join(
+            f"<code>{short(a['address'])}</code> <i>{a['name']}</i>"
+            for a in addrs[:4]
+        )
+        more = f" +{len(addrs) - 4} more" if len(addrs) > 4 else ""
+        lines.append(f"{c_emoji} <b>{chain_name.capitalize()}</b>: {addr_parts}{more}")
+
+    if recent:
+        lines.append("")
+        lines.append("<b>Recent alerts:</b>")
+        for alert in recent[:5]:
+            d = alert.get("direction", "SEND")
+            sym = alert.get("token_symbol") or "native"
+            usd = alert.get("amount_usd", 0)
+            ch = alert.get("chain", "ethereum")
+            c_emoji = CHAIN_EMOJI.get(ch, "")
+            lines.append(
+                f"{dir_emoji(d)} <b>{d}</b> {sym} · {fmt_usd(usd)} {c_emoji}"
+            )
+
+    await update.message.reply_text(
+        tg_box(
+            f"🌐 Cross-Chain Entity — {e_name}",
+            lines,
+            footer=f"Smart Money Tracker — Cross-Chain Entity Detection · {hours}h window",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_entity_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /entity_lookup <address> [chain]
+    Resolve any wallet address to its cross-chain entity.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /entity_lookup &lt;address&gt; [chain]", parse_mode="HTML"
+        )
+        return
+
+    address = args[0]
+    chain = args[1].lower() if len(args) > 1 else None
+
+    if chain and chain not in VALID_CHAINS:
+        await update.message.reply_text(
+            f"Unknown chain <b>{chain}</b>. Valid: {', '.join(sorted(VALID_CHAINS))}",
+            parse_mode="HTML",
+        )
+        return
+
+    params: dict = {}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get(f"/entity/lookup/{address}", params=params)
+
+    if data is None:
+        await update.message.reply_text(
+            tg_box(
+                "Unknown address",
+                [
+                    f"<code>{short(address)}</code> is not in the SmartLabel database.",
+                    "",
+                    "Only known entities (exchanges, VCs, funds, protocols) are indexed.",
+                    "Use /entity &lt;name&gt; if you know the entity name.",
+                ],
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    e_name = data.get("entity_name", "Unknown")
+    e_type = data.get("entity_type", "unknown")
+    addresses = data.get("addresses", [])
+    chains = data.get("chains", [])
+
+    type_emoji = {
+        "exchange": "🏦", "vc": "🏢", "founder": "👤",
+        "foundation": "🏛️", "dao": "🗳️", "bridge": "🌉",
+        "defi": "🔄", "staking": "📊", "lending": "💰",
+        "mev": "🤖", "custodian": "🔐",
+    }.get(e_type, "🔍")
+
+    chain_badges = " · ".join(
+        f"{CHAIN_EMOJI.get(c, '')} {c.capitalize()}" for c in chains
+    )
+
+    lines: list[str] = [
+        f"<b>{type_emoji} {e_name}</b>  ·  {e_type.replace('_', ' ').title()}",
+        f"🔗 {len(addresses)} address(es) across {len(chains)} chain(s)",
+        f"Chains: {chain_badges}",
+        "",
+        "<b>All known addresses:</b>",
+    ]
+
+    for a in addresses:
+        c_emoji = CHAIN_EMOJI.get(a["chain"], "")
+        tier_badge = " 🔒" if a.get("tier") == "pro" else ""
+        lines.append(
+            f"{c_emoji} <code>{short(a['address'])}</code> — {a['name']}{tier_badge}"
+        )
+
+    lines.append("")
+    lines.append(f"Use /entity {e_name} to see full cross-chain activity and P&amp;L.")
+
+    await update.message.reply_text(
+        tg_box(
+            f"🔍 Entity Lookup — {short(address)}",
+            lines,
+            footer="Smart Money Tracker — Cross-Chain Entity Detection",
+        ),
+        parse_mode="HTML",
+    )
+
+
 async def cmd_twitter_status(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -1396,6 +1651,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("clusters",             cmd_clusters))
     app.add_handler(CommandHandler("wallet_cluster",       cmd_wallet_cluster))
     app.add_handler(CommandHandler("bot_stats",            cmd_bot_stats))
+    # Cross-chain entity commands
+    app.add_handler(CommandHandler("entity",               cmd_entity))
+    app.add_handler(CommandHandler("entity_lookup",        cmd_entity_lookup))
     # Insight commands
     app.add_handler(CommandHandler("daily_summary",        cmd_daily_summary))
     app.add_handler(CommandHandler("top_wallets",          cmd_top_wallets))

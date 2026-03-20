@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v3.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -55,12 +55,13 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 🏷️ | **Smart Labeling** | Identify 80+ known entities (Binance, Coinbase, Vitalik, Jump Trading, Lido…) in every alert. Pro servers unlock 300 premium labels |
 | 🔔 | **Real-time Discord Push** | Whale and all alert types pushed instantly to any channel you configure — no polling, zero latency. Filters by chain, score, and alert type |
 | 🎯 | **Free vs Pro Tier** | Free guilds see public labels + push notifications. Pro guilds unlock premium entity names on all alerts |
-| 🤖 | **Multi-Platform Bots** | Discord (32 slash commands, Components V2) and Telegram bots |
+| 🤖 | **Multi-Platform Bots** | Discord (34 slash commands, Components V2) and Telegram bots |
 | 🔌 | **REST API** | Full-featured API with Swagger UI and ReDoc documentation |
 | 💾 | **PostgreSQL + TimescaleDB** | Production-grade time-series database with automatic hypertables for whale alerts and portfolio snapshots |
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
 | 🌐 | **External Deployment** | Set `API_BASE_URL` once to point bots at any VPS, Pterodactyl node, or domain |
 | 🔐 | **Discord OAuth2** | `/invite` command generates a scoped bot-invite link automatically |
+| 🌐 | **Cross-Chain Entity Detection** | Link known addresses of the same entity across all chains — see what Jump Trading, Binance, or any labelled entity is doing across ALL chains in one view; `/entity` shows per-chain volume, combined P&L, recent alerts; whale alert cards enriched with "Also active on BSC today" |
 | 📉 | **Backtesting Engine** | Automatically measures signal accuracy — win rate, avg P&L at 24h/72h/7d for every Accumulation and Exchange Flow signal; `/bot_stats` shows live accuracy proof |
 
 ---
@@ -73,7 +74,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 ├──────────────────┬──────────────────┬──────────────────┬───────────────────────────────────────┤
 │   Discord Bot    │  Web Dashboard   │  Telegram Bot    │         WebSocket Subscribers         │
 │ (discord.py 2.7) │ configurable URL │   (ptb 21.0)     │  • Real-time whale/price/accum alerts │
-│ • 32 commands    │ • Dark-theme UI  │ • Multi-chain    │  • score + chain + type filters       │
+│ • 34 commands    │ • Dark-theme UI  │ • Multi-chain    │  • score + chain + type filters       │
 │ • Components V2  │ • Swagger/ReDoc  │ • Clustering     │                                       │
 │ • Push alerts    │                  │ • Exchange flows │                                       │
 │ • Free / Pro     │                  │                  │                                       │
@@ -83,7 +84,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
                             │                                                │
 ┌───────────────────────────▼────────────────────────────────────────────────────────────────────┐
 │                            FastAPI Backend  (Port 8000)                                         │
-│  Wallets · Alerts · Price Alerts · Exchange Flows · Clusters · Portfolio · Channels · Guilds   │
+│  Wallets · Alerts · Price Alerts · Exchange Flows · Clusters · Entity · Portfolio · Channels    │
 │                                                                                                 │
 │  ┌── EventDispatcher (typed AlertDTO bus) ─────────────────────────────────────────────────┐   │
 │  │  WhaleAlertEvent / AccumulationAlertEvent / ExchangeFlowAlertEvent                     │   │
@@ -99,6 +100,10 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 │  │  enriched at scan time        │   │  via SmartLabel exchanges  │   │  Pattern · Union-Find│ │
 │  │  per-guild via /whois         │   │  1-hour cooldown           │   │  rebuild every 10 min│ │
 │  └───────────────────────────────┘   └────────────────────────────┘   └──────────────────────┘ │
+│  ┌── Cross-Chain Entity Detection ─────────────────────────────────────────────────────────────┐ │
+│  │  normalize_entity_name() → group SmartLabel addresses across chains → unified entity view   │ │
+│  │  /entity profile · /entity_lookup · alert enrichment ("Also active on BSC") · no new model │ │
+│  └─────────────────────────────────────────────────────────────────────────────────────────────┘ │
 │  ┌── Backtester ─────────────────────────────────────────────────────────────────────────────┐  │
 │  │  Runs on startup + daily UTC midnight · DeFiLlama historical prices · /bot_stats command  │  │
 │  │  AccumulationEvent + ExchangeFlowEvent → price@signal · +24h · +72h · +7d → win rate     │  │
@@ -268,6 +273,11 @@ Once the API is running, access the interactive documentation at:
 | `GET` | `/api/v1/clusters/{id}` | Single cluster with all members |
 | `GET` | `/api/v1/clusters/wallet/{address}` | All clusters containing a specific wallet |
 | `POST` | `/api/v1/clusters/analyze` | Trigger immediate re-analysis (background) |
+| **Cross-Chain Entity Detection** | | |
+| `GET` | `/api/v1/entity/list` | All known entities from SmartLabel DB with address counts |
+| `GET` | `/api/v1/entity/lookup/{address}` | Resolve address to cross-chain entity + all chain addresses |
+| `GET` | `/api/v1/entity/{name}` | Full cross-chain profile (per-chain volume, P&L, recent alerts) |
+| `GET` | `/api/v1/entity/{name}/activity` | Recent cross-chain whale activity for an entity |
 | **Token Safety** | | |
 | `GET` | `/api/v1/token-safety/{mint}` | Solana token safety report — risk score, mint/freeze authority, LP lock, top holders |
 | **Price Alerts** | | |
@@ -425,6 +435,13 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/cluster_info <id>` | Full details for a cluster: all members, detection methods, combined volume |
 | `/wallet_cluster <address> [chain]` | Check which cluster (entity) a wallet belongs to |
 
+**🌐 Cross-Chain Entity Detection**
+
+| Command | Description |
+|---------|-------------|
+| `/entity <name_or_address> [hours]` | Cross-chain entity profile — per-chain volume, combined P&L, recent alerts; pass address or name |
+| `/entity_lookup <address> [chain]` | Resolve any wallet address to its cross-chain entity and see all known addresses |
+
 **🛡️ Token Safety**
 
 | Command | Description |
@@ -508,6 +525,8 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/exchange_flows [chain] [OUTFLOW\|INFLOW] [count]` | Exchange flow events (sell/buy signals) |
 | `/clusters [chain] [count]` | Detected wallet clusters (same-entity groups) |
 | `/wallet_cluster <address> [chain]` | Which cluster a wallet belongs to |
+| `/entity <name_or_address> [hours]` | Cross-chain entity profile (per-chain volume, P&L, alerts) |
+| `/entity_lookup <address> [chain]` | Resolve address to its cross-chain entity |
 | `/chains` | List all supported chains |
 | `/status` | Check API health |
 
@@ -681,6 +700,7 @@ Smart-Money-Tracker/
 │   │   ├── price_alerts.py       # Price alert rules CRUD
 │   │   ├── exchange_flows.py     # Exchange flow event endpoints
 │   │   ├── clusters.py           # Wallet cluster endpoints + manual trigger
+│   │   ├── cross_chain.py       # Cross-chain entity detection endpoints
 │   │   ├── portfolio.py          # Portfolio wallet + snapshot endpoints
 │   │   ├── token_safety.py       # Solana token safety (RugCheck.xyz proxy)
 │   │   ├── twitter.py            # Twitter status, recent tweets, preview, reset-budget
@@ -694,6 +714,7 @@ Smart-Money-Tracker/
 │       ├── accumulation_detector.py  # Accumulation pattern detector
 │       ├── exchange_flow_detector.py # Exchange flow detector (OUTFLOW / INFLOW)
 │       ├── cluster_detector.py   # ClusterAnalyzer background service + get_wallet_cluster_info()
+│       ├── cross_chain_entity.py # Cross-chain entity detection service (normalize, resolve, enrich)
 │       ├── twitter/              # Twitter/X broadcasting module
 │       │   ├── broadcaster.py    # TwitterBroadcaster (BroadcasterProtocol plugin)
 │       │   ├── scoring.py        # Priority scoring engine (0-100 pts, all alert types)
@@ -725,6 +746,7 @@ Smart-Money-Tracker/
 │   │   ├── cmd_price_alerts.py   # /price_alert_add /price_alerts /delete /toggle
 │   │   ├── cmd_exchange_flows.py # /exchange_flows
 │   │   ├── cmd_clusters.py       # /clusters /cluster_info /wallet_cluster
+│   │   ├── cmd_cross_chain.py   # /entity /entity_lookup
 │   │   ├── cmd_info.py           # /chains /status /invite
 │   │   ├── cmd_help.py           # /help [command]
 │   │   ├── cmd_twitter.py        # /twitter_status /twitter_test /twitter_reset_budget
@@ -733,7 +755,7 @@ Smart-Money-Tracker/
 │   │   └── auto_push.py          # WebSocket listener — pushes all alert types to channels
 │   └── telegram_bot/
 │       ├── bot.py
-│       └── handlers.py           # All commands incl. /exchange_flows /clusters /wallet_cluster
+│       └── handlers.py           # All commands incl. /entity /entity_lookup /clusters /exchange_flows
 │
 ├── config/
 │   ├── chains.py                 # Chain registry (7 chains)
@@ -809,7 +831,8 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Per-alert-type budget allocation — separate reserved pools across all 3 broadcasters
 - [x] Bulk Pro label CSV importer (`admin/import_pro_labels.py`)
 - [x] Backtesting engine — historical signal accuracy (win rate, avg P&L at 24h/72h/7d) via DeFiLlama; `/bot_stats` command; `GET /api/v1/backtest/stats` + `/metrics/performance` for landing page
-- [ ] Web dashboard with live charts (real-time P&L curves, accumulation heatmap, accuracy metrics)
+- [x] Cross-chain entity detection — link known addresses across chains via SmartLabel, unified entity view, alert enrichment, `/entity` + `/entity_lookup` commands, 4 API endpoints, all broadcaster templates
+- [ ] Web dashboard with live charts (real-time P&L curves, accumulation heatmap, cross-chain entity explorer)
 - [ ] Expand Pro label database beyond 300 entities (Solana wallets, Layer 2 smart money)
 - [ ] Machine learning for whale behavior prediction
 - [ ] Kubernetes Helm charts

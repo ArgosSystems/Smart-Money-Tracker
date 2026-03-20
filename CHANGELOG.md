@@ -5,6 +5,51 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-03-20
+
+### Added — Cross-Chain Entity Detection 🌐
+
+**New core service (`api/services/cross_chain_entity.py`):**
+- `normalize_entity_name(name)` — strips trailing numeric suffixes and parenthetical qualifiers from SmartLabel names so `"Binance 14"`, `"Binance 15"`, `"Binance 10 (Cold)"` all resolve to entity `"Binance"`; two compiled regexes, no new DB columns, no migration needed
+- `get_entity_addresses(db, entity_name)` — returns all `SmartLabel` rows whose normalised name matches, across all chains
+- `resolve_entity_from_address(db, address, chain)` — given any wallet address, finds its SmartLabel, normalises the entity name, then returns all known addresses for the same entity across all chains (entity_name, entity_type, addresses, chains)
+- `get_entity_activity(db, entity_name, hours)` — full cross-chain profile: all known addresses, per-chain volume breakdown (buy/sell counts, volume, alert count), combined P&L from `wallet_positions`, and last 10 `whale_alerts` across all chains within the lookback window
+- `enrich_alert_cross_chain(db, wallet_address, chain)` — lightweight enrichment for every whale alert: returns entity_name, entity_type, total_addresses, `also_active_on` (list of other chains with recent alerts), cross_chain_volume_usd, cross_chain_alert_count
+- `list_entities(db)` — all unique entities derived from the SmartLabel table, grouped by normalised name, with address count and chains
+
+**New API endpoints (`api/routers/cross_chain.py`):**
+- `GET /api/v1/entity/list` — all known entities from the SmartLabel database with address counts
+- `GET /api/v1/entity/lookup/{address}` — resolve any address to its cross-chain entity + all chain addresses
+- `GET /api/v1/entity/{name}` — full cross-chain profile for a named entity (per-chain breakdown, P&L, recent alerts)
+- `GET /api/v1/entity/{name}/activity` — recent cross-chain whale activity for an entity (focused on volume + alerts)
+
+**New Discord commands (`bots/discord_bot/cmd_cross_chain.py`):**
+- `/entity <name_or_address> [hours]` — full cross-chain entity profile; pass a wallet address to auto-resolve via lookup, or use the entity name directly; shows entity type with emoji, known addresses grouped by chain, per-chain volume breakdown, combined P&L, and last 5 alerts; CV2 card with `cv2_send()` matching existing command patterns
+- `/entity_lookup <address> [chain]` — resolve any wallet address to its cross-chain entity; shows all known addresses with chain badges, tier indicators, and a hint to use `/entity` for full activity
+
+**New Telegram commands (`bots/telegram_bot/handlers.py`):**
+- `/entity <name_or_address> [hours]` — full cross-chain entity profile; HTML-formatted `tg_box()` with per-chain breakdown, combined P&L, known addresses, and recent alerts; handles address-to-entity resolution inline
+- `/entity_lookup <address> [chain]` — resolve address to entity; shows all chain addresses with tier badges
+
+**Whale alert enrichment (`api/services/whale_tracker.py`):**
+- `enrich_alert_cross_chain(db, whale_wallet_addr, alert.chain)` called for every new whale alert alongside cluster enrichment; adds 6 new metadata keys to `WhaleAlertEvent`: `cross_chain_entity`, `cross_chain_entity_type`, `cross_chain_also_active`, `cross_chain_total_addrs`, `cross_chain_volume_usd`, `cross_chain_alert_count` (all `None` when wallet is not in SmartLabel)
+
+**Discord auto-push (`bots/discord_bot/auto_push.py`):**
+- `_format_whale_alert()` now shows a `🌐 **Jump Trading** also active on 🔵 Base · 🟡 BSC` line when `cross_chain_also_active` metadata is present
+
+**Broadcaster template updates:**
+- **Twitter** (`api/services/twitter/templates.py`) — `_render_whale()` appends `🌐 Jump Trading also on Base, BSC` when cross-chain metadata is present; compact format within 280-char budget
+- **Telegram Channel** (`api/services/telegram_channel/templates.py`) — `_render_whale()` appends `🌐 <b>Jump Trading</b> also active on 🔵 Base · 🟡 BSC` with HTML formatting and chain emoji
+- **Bluesky** (`api/services/bluesky/templates.py`) — `_render_whale()` appends `🌐 Jump Trading also on Base, BSC` in plain text within 300-grapheme limit
+
+**Help & navigation:**
+- `/help` catalogue (`bots/discord_bot/cmd_help.py`) — `entity` and `entity_lookup` entries added under a new `🌐 Cross-Chain` category
+- Telegram `/start` help text updated with `Cross-Chain Entity` section
+
+**No new database models.** All queries use existing tables: `smart_labels`, `whale_alerts`, `wallet_positions`. Entity grouping is performed at runtime via `normalize_entity_name()`.
+
+---
+
 ## [2.9.0] - 2026-03-20
 
 ### Added — Insight Commands & Daily Summary
@@ -869,6 +914,9 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **3.0.0** | **2026-03-20** | **Cross-chain entity detection — link known addresses across chains via SmartLabel, unified entity view (per-chain volume, combined P&L, recent alerts), alert enrichment ("Also active on BSC today"), /entity + /entity_lookup Discord & Telegram commands, 4 API endpoints, all 3 broadcaster templates updated** |
+| 2.9.0 | 2026-03-20 | 5 insight commands + daily digest broadcaster |
+| 2.8.0 | 2026-03-20 | Backtesting engine + /bot_stats accuracy command |
 | **2.7.0** | **2026-03-19** | **Wallet clustering (3 detection methods, background analyzer, API + Discord/Telegram commands, broadcaster support); bulk pro label CSV importer; per-alert-type budget pools for all 3 broadcasters** |
 | 2.6.1 | 2026-03-19 | Fix: exchange flow alerts wired through all broadcaster plugins (Twitter, Telegram Channel, Bluesky) — was only reaching Discord WebSocket auto-push |
 | 2.6.0 | 2026-03-19 | Exchange Flow Detection — OUTFLOW/INFLOW signals via SmartLabel exchange addresses, ExchangeFlowEvent table, /exchange_flows Discord + Telegram commands, Twitter scorer + renderer |
@@ -897,12 +945,12 @@ Applied uniformly to all three broadcasters (Twitter, Telegram Channel, Bluesky)
 
 These features are planned for future releases:
 
-### [2.8.0] - Planned
+### [3.1.0] - Planned
 
-- Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
-- Telegram bot full command parity with Discord (push notifications, P&L, accumulation commands)
+- Web dashboard with live charts (real-time P&L curves, accumulation heatmap, cross-chain entity explorer)
+- Expand Pro label database beyond 300 entities (Solana wallets, Layer 2 smart money)
 
-### [3.0.0] - Planned
+### [4.0.0] - Planned
 
 - Machine learning for whale behavior prediction
 - Kubernetes Helm charts

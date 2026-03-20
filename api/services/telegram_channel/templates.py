@@ -120,6 +120,16 @@ class TelegramMessageRenderer:
                 f"  ·  <i>{conf * 100:.0f}% confidence</i>"
             )
 
+        # Optional cross-chain entity context
+        cross_chain_line = ""
+        also_active = meta.get("cross_chain_also_active")
+        if also_active:
+            chains_str = " · ".join(
+                f"{chain_emoji(c)} {c.capitalize()}" for c in also_active
+            )
+            entity = _html(meta.get("cross_chain_entity", ""))
+            cross_chain_line = f"\n🌐 <b>{entity}</b> also active on {chains_str}"
+
         msg = (
             f"{badge} <b>Whale Alert</b>  {ce} <b>{chain}</b>\n"
             f"{_SEP}\n"
@@ -127,6 +137,7 @@ class TelegramMessageRenderer:
             f"📦 <code>{amount} {symbol}</code>\n"
             f"👤 <code>{from_label}</code> ➜ <code>{to_label}</code>"
             f"{cluster_line}"
+            f"{cross_chain_line}"
         )
         if tx_url:
             msg += f'\n🔗 <a href="{tx_url}">View Transaction ↗</a>'

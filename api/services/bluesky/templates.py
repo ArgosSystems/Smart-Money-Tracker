@@ -113,12 +113,20 @@ class BlueSkyPostRenderer:
         if meta.get("cluster_label"):
             cluster_line = f"\n🕵️ Cluster: {meta['cluster_label']}"
 
+        # Optional cross-chain entity context
+        cross_chain_line = ""
+        also_active = meta.get("cross_chain_also_active")
+        if also_active:
+            chains_str = ", ".join(c.capitalize() for c in also_active)
+            cross_chain_line = f"\n🌐 {meta.get('cross_chain_entity', '')} also on {chains_str}"
+
         post = (
             f"{badge} Whale Alert {ce} {chain}\n\n"
             f"{de} {direction} · {symbol} · {usd}\n"
             f"📦 {amount} {symbol}\n"
             f"👤 {from_label} {action} ➜ {to_label}"
             f"{cluster_line}"
+            f"{cross_chain_line}"
         )
         if tx_url:
             post += f"\n🔗 {tx_url}"

@@ -135,6 +135,15 @@ def _format_whale_alert(data: dict, tier: str = "free") -> tuple[str, list[str],
         conf = data.get("cluster_confidence", 0.0)
         lines.append(f"🕵️ Cluster: **{data['cluster_label']}**  ·  {conf * 100:.0f}% confidence")
 
+    # Optional cross-chain entity context
+    also_active = data.get("cross_chain_also_active")
+    if also_active:
+        badges = " · ".join(
+            f"{CHAIN_EMOJI.get(c, '')} {c.capitalize()}" for c in also_active
+        )
+        entity_name = data.get("cross_chain_entity", "")
+        lines.append(f"🌐 **{entity_name}** also active on {badges}")
+
     if link:
         lines.append(f"🔗 [View transaction ↗]({link})  ·  Block `{block}`")
     lines.append(_branding_line())
