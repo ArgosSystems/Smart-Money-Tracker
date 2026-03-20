@@ -240,6 +240,47 @@ def _format_exchange_flow_alert(data: dict) -> tuple[str, list[str], discord.Col
     return title, lines, color, footer
 
 
+def _format_daily_summary_alert(data: dict) -> tuple[str, list[str], discord.Color, str]:
+    """Build CV2 title, lines, color, footer from a daily summary alert dict."""
+    date_label   = data.get("date_label", "")
+    alert_count  = data.get("alert_count_24h", 0)
+    total_vol    = data.get("total_volume_24h_usd", 0.0)
+    top_moves    = data.get("top_moves") or []
+    most_token   = data.get("most_accumulated_token")
+    most_vol     = data.get("most_accumulated_volume", 0.0)
+    flow_dir     = data.get("top_flow_direction")
+    flow_token   = data.get("top_flow_token")
+    flow_usd     = data.get("top_flow_amount_usd", 0.0)
+
+    lines = [
+        f"**📊 {alert_count} whale moves detected  ·  Total volume: {fmt_usd(total_vol)}**",
+    ]
+
+    if most_token:
+        lines.append(f"🔁 Most accumulated: **{most_token}** ({fmt_usd(most_vol)} buy volume)")
+
+    if flow_dir and flow_token:
+        flow_emoji = "🔴" if flow_dir == "OUTFLOW" else "🟢"
+        flow_label = "being sent to exchanges" if flow_dir == "OUTFLOW" else "flowing from exchanges to whales"
+        lines.append(f"{flow_emoji} Top exchange flow: **{flow_token}** {fmt_usd(flow_usd)} — {flow_label}")
+
+    if top_moves:
+        lines.append("**🐋 Top 5 moves:**")
+        for i, move in enumerate(top_moves[:5], start=1):
+            d_emoji = {"BUY": "🟢", "SELL": "🔴", "SEND": "🔵"}.get(move.get("direction", "SEND"), "⚪")
+            c_emoji = CHAIN_EMOJI.get(move.get("chain", ""), "")
+            lines.append(
+                f"`#{i}` {d_emoji} **{move.get('token', 'native')}**  ·  "
+                f"{fmt_usd(move.get('amount_usd', 0))} {c_emoji}"
+            )
+
+    lines.append(_branding_line())
+
+    title  = f"📅 Daily Whale Summary  ·  {date_label}"
+    footer = "Smart Money Tracker — Daily digest at 08:00 UTC"
+    return title, lines, COLOR_INFO, footer
+
+
 def _format_cluster_alert(data: dict) -> tuple[str, list[str], discord.Color, str]:
     """Build CV2 title, lines, color, footer from a wallet cluster alert dict."""
     chain        = data.get("chain", "ethereum")
@@ -387,6 +428,9 @@ async def _dispatch_alert(bot: commands.Bot, data: dict) -> None:
         fallback_view = build_cv2(title=title, lines=lines, color=color, footer=footer)
     elif alert_type == "wallet_cluster":
         title, lines, color, footer = _format_cluster_alert(data)
+        fallback_view = build_cv2(title=title, lines=lines, color=color, footer=footer)
+    elif alert_type == "daily_summary":
+        title, lines, color, footer = _format_daily_summary_alert(data)
         fallback_view = build_cv2(title=title, lines=lines, color=color, footer=footer)
     else:
         # portfolio alerts not pushed to Discord channels

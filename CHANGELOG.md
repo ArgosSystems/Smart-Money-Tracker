@@ -5,6 +5,48 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-03-20
+
+### Added — Insight Commands & Daily Summary
+
+**New API endpoints (`api/routers/insights.py`):**
+- `GET /api/v1/insights/daily-summary` — 24 h whale digest (top moves, most accumulated token, top exchange flow)
+- `GET /api/v1/insights/top-wallets` — top wallets by realized P&L from `wallet_positions` (optional `chain` filter)
+- `GET /api/v1/insights/trending-buys` — most bought tokens in last N hours from `whale_alerts` (optional `chain`, `hours` params)
+- `GET /api/v1/insights/whale-leaderboard` — top wallets by total volume in last 24 h (optional `chain` filter)
+- `GET /api/v1/insights/wallet-score/{address}` — smart wallet score combining `BacktestResult` accuracy + `whale_alerts` volume
+
+**New background service (`api/services/daily_summary.py`):**
+- `DailySummaryScheduler` — fires at 8 AM UTC daily, dispatches `DailySummaryEvent` via `EventDispatcher` to all broadcaster plugins
+- `build_daily_summary()` — aggregates last 24 h from `whale_alerts` and `exchange_flow_events`
+
+**New event types:**
+- `AlertType.DAILY_SUMMARY` added to `api/events/protocol.py`
+- `DailySummaryEvent` dataclass added to `api/events/types.py`
+
+**Broadcaster updates:**
+- All 3 broadcasters (Twitter, Telegram Channel, Bluesky) accept `DAILY_SUMMARY` events via `_should_accept()`
+
+**New Discord commands (`bots/discord_bot/cmd_insights.py`):**
+- `/daily_summary` — CV2 card with 24 h digest
+- `/top_wallets [chain]` — top 10 wallets by realized P&L
+- `/trending_buys [chain]` — most bought tokens in last 4 h
+- `/whale_leaderboard [chain]` — top movers by total volume today
+- `/wallet_score <address> [chain]` — smart wallet accuracy score
+
+**New Telegram commands (`bots/telegram_bot/handlers.py`):**
+- `/daily_summary`, `/top_wallets`, `/trending_buys`, `/whale_leaderboard`, `/wallet_score` — full parity with Discord commands
+
+**Discord auto-push (`bots/discord_bot/auto_push.py`):**
+- `_format_daily_summary_alert()` added — daily digests auto-posted to all configured alert channels
+
+**start.py:**
+- 6 new BotCommand entries in BotFather command list (bot_stats + 5 insight commands)
+
+**No new database models.** All queries use existing tables: `whale_alerts`, `wallet_positions`, `exchange_flow_events`, `backtest_results`.
+
+---
+
 ## [2.8.0] - 2026-03-20
 
 ### Added

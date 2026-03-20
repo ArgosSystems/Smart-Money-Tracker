@@ -171,6 +171,8 @@ class TelegramChannelBroadcaster:
             return cfg.enable_exchange_flow_posts  # type: ignore[attr-defined]
         elif event.alert_type == AlertType.WALLET_CLUSTER:
             return cfg.enable_cluster_posts  # type: ignore[attr-defined]
+        elif event.alert_type == AlertType.DAILY_SUMMARY:
+            return True  # Always broadcast daily digests
         return False
 
     def _handle_overflow(self, new_item: ScoredAlert) -> None:

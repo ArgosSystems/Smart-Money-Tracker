@@ -168,6 +168,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "<b>Clustering</b>",
             "/clusters [chain] [count] — entities behind multiple wallets",
             "/wallet_cluster &lt;address&gt; [chain] — which cluster owns this wallet",
+            "",
+            "<b>Insights</b>",
+            "/daily_summary — 24 h whale digest (also auto-posted at 08:00 UTC)",
+            "/top_wallets [chain] — top 10 wallets by realized P&amp;L",
+            "/trending_buys [chain] — most bought tokens in last 4 h",
+            "/whale_leaderboard [chain] — top movers by total volume today",
+            "/wallet_score &lt;address&gt; [chain] — smart wallet accuracy score",
         ],
         footer="Powered by Smart Money Tracker",
     )
@@ -1021,6 +1028,286 @@ async def cmd_bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def cmd_daily_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /daily_summary
+    24 h whale activity digest: top moves, most accumulated token, top exchange flow.
+    """
+    data = await _get("/insights/daily-summary")
+
+    if not isinstance(data, dict):
+        await update.message.reply_text("❌ Could not load daily summary.")
+        return
+
+    date_label   = data.get("date_label", "")
+    alert_count  = data.get("alert_count_24h", 0)
+    total_vol    = data.get("total_volume_24h_usd", 0.0)
+    top_moves    = data.get("top_moves") or []
+    most_token   = data.get("most_accumulated_token")
+    most_vol     = data.get("most_accumulated_volume", 0.0)
+    flow_dir     = data.get("top_flow_direction")
+    flow_token   = data.get("top_flow_token")
+    flow_usd     = data.get("top_flow_amount_usd", 0.0)
+
+    lines: list[str] = [
+        f"📊 <b>{alert_count} whale moves</b>  ·  Total volume: {fmt_usd(total_vol)}",
+    ]
+
+    if most_token:
+        lines.append(f"🔁 Most accumulated: <b>{most_token}</b> ({fmt_usd(most_vol)} buy vol)")
+
+    if flow_dir and flow_token:
+        flow_emoji = "🔴" if flow_dir == "OUTFLOW" else "🟢"
+        flow_label = "being sent to exchanges" if flow_dir == "OUTFLOW" else "flowing from exchanges"
+        lines.append(f"{flow_emoji} Top exchange flow: <b>{flow_token}</b> {fmt_usd(flow_usd)} — {flow_label}")
+
+    if top_moves:
+        lines.append("")
+        lines.append("<b>🐋 Top 5 moves today:</b>")
+        for i, move in enumerate(top_moves[:5], start=1):
+            d_emoji = {"BUY": "🟢", "SELL": "🔴", "SEND": "🔵"}.get(move.get("direction", "SEND"), "⚪")
+            c_emoji = CHAIN_EMOJI.get(move.get("chain", ""), "")
+            lines.append(
+                f"#{i} {d_emoji} <b>{move.get('token', 'native')}</b>  ·  "
+                f"{fmt_usd(move.get('amount_usd', 0))} {c_emoji}"
+            )
+
+    await update.message.reply_text(
+        tg_box(
+            f"📅 Daily Whale Summary — {date_label}",
+            lines,
+            footer="Smart Money Tracker — auto-posted daily at 08:00 UTC",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_top_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /top_wallets [chain]
+    Top 10 wallets by realized P&L.
+    """
+    args  = context.args or []
+    chain = args[0].lower() if args and args[0].lower() in VALID_CHAINS else None
+
+    params: dict = {"limit": 10}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get("/insights/top-wallets", params=params)
+
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no P&L data.")
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+
+    if not data:
+        await update.message.reply_text(
+            tg_box(f"🏆 Top Wallets — {chain_label}", ["No P&L data yet."]),
+            parse_mode="HTML",
+        )
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines: list[str] = []
+    for row in data:
+        rank  = row.get("rank", 0)
+        addr  = row.get("wallet_address", "")
+        pnl   = row.get("total_pnl_usd", 0.0)
+        txs   = row.get("tx_count", 0)
+        medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
+        sign  = "+" if pnl >= 0 else ""
+        emoji = "📈" if pnl >= 0 else "📉"
+        lines.append(
+            f"{medal} <code>{short(addr)}</code>  ·  {emoji} <b>{sign}{fmt_usd(pnl)}</b>  ·  {txs} txs"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"🏆 Top Wallets by P&L — {chain_label}",
+            lines,
+            footer="Realized P&L from wallet positions · Smart Money Tracker",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_trending_buys(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /trending_buys [chain]
+    Most bought tokens by whales in the last 4 hours.
+    """
+    args  = context.args or []
+    chain = args[0].lower() if args and args[0].lower() in VALID_CHAINS else None
+
+    params: dict = {"hours": 4, "limit": 10}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get("/insights/trending-buys", params=params)
+
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no trending data.")
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+
+    if not data:
+        await update.message.reply_text(
+            tg_box(f"🔥 Trending Buys — {chain_label}", ["No whale buy activity in the last 4 h."]),
+            parse_mode="HTML",
+        )
+        return
+
+    lines: list[str] = []
+    for row in data:
+        rank    = row.get("rank", 0)
+        token   = row.get("token_symbol", "?")
+        c_name  = row.get("chain", "ethereum")
+        buys    = row.get("buy_count", 0)
+        vol     = row.get("buy_volume_usd", 0.0)
+        buyers  = row.get("unique_buyers", 0)
+        c_emoji = CHAIN_EMOJI.get(c_name, "")
+        lines.append(
+            f"#{rank} <b>{token}</b> {c_emoji}  ·  "
+            f"🟢 {buys} buys  ·  {fmt_usd(vol)}  ·  {buyers} wallets"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"🔥 Trending Buys (Last 4h) — {chain_label}",
+            lines,
+            footer="Whale BUY activity from whale_alerts · Smart Money Tracker",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_whale_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /whale_leaderboard [chain]
+    Top 10 wallets by total trading volume in the last 24 hours.
+    """
+    args  = context.args or []
+    chain = args[0].lower() if args and args[0].lower() in VALID_CHAINS else None
+
+    params: dict = {"limit": 10}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get("/insights/whale-leaderboard", params=params)
+
+    if not isinstance(data, list):
+        await update.message.reply_text("❌ API error or no leaderboard data.")
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+
+    if not data:
+        await update.message.reply_text(
+            tg_box(f"🏅 Whale Leaderboard — {chain_label}", ["No whale activity in the last 24 h."]),
+            parse_mode="HTML",
+        )
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines: list[str] = []
+    for row in data:
+        rank   = row.get("rank", 0)
+        addr   = row.get("wallet_address", "")
+        total  = row.get("total_volume_usd", 0.0)
+        txs    = row.get("tx_count", 0)
+        buy_v  = row.get("buy_volume_usd", 0.0)
+        sell_v = row.get("sell_volume_usd", 0.0)
+        medal  = medals[rank - 1] if rank <= 3 else f"#{rank}"
+        lines.append(
+            f"{medal} <code>{short(addr)}</code>  ·  <b>{fmt_usd(total)}</b>  ·  "
+            f"🟢 {fmt_usd(buy_v)}  🔴 {fmt_usd(sell_v)}  ·  {txs} txs"
+        )
+
+    await update.message.reply_text(
+        tg_box(
+            f"🏅 Whale Leaderboard (24h) — {chain_label}",
+            lines,
+            footer="Total USD volume from whale_alerts · Smart Money Tracker",
+        ),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_wallet_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /wallet_score <address> [chain]
+    Smart wallet score: win rate, avg P&L, and volume for a tracked wallet.
+    """
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /wallet_score &lt;address&gt; [chain]", parse_mode="HTML"
+        )
+        return
+
+    address = args[0]
+    chain   = args[1].lower() if len(args) > 1 else None
+
+    if chain and chain not in VALID_CHAINS:
+        await update.message.reply_text(
+            f"Unknown chain <b>{chain}</b>. Valid: {', '.join(sorted(VALID_CHAINS))}",
+            parse_mode="HTML",
+        )
+        return
+
+    params: dict = {}
+    if chain:
+        params["chain"] = chain
+
+    data = await _get(f"/insights/wallet-score/{address}", params=params)
+
+    if not isinstance(data, dict):
+        await update.message.reply_text("❌ Could not compute wallet score. Check address format.")
+        return
+
+    chain_label = chain_badge(chain) if chain else "All Chains"
+    total_sig   = data.get("total_signals", 0)
+    win_rate    = data.get("win_rate_pct")
+    avg_pnl     = data.get("avg_pnl_72h_pct")
+    best        = data.get("best_trade_pct")
+    worst       = data.get("worst_trade_pct")
+    tx_count    = data.get("tx_count", 0)
+    total_vol   = data.get("total_volume_usd", 0.0)
+    has_bt      = data.get("has_backtest_data", False)
+
+    lines: list[str] = [
+        f"Wallet: <code>{address}</code>",
+        f"Chain: {chain_label}",
+        f"Total volume: <b>{fmt_usd(total_vol)}</b>  ·  {tx_count} transactions",
+    ]
+
+    if has_bt:
+        wr_str    = f"{win_rate:.0f}%" if win_rate is not None else "—"
+        pnl_str   = f"{avg_pnl:+.1f}%" if avg_pnl is not None else "—"
+        best_str  = f"{best:+.1f}%" if best is not None else "—"
+        worst_str = f"{worst:+.1f}%" if worst is not None else "—"
+        correct   = data.get("total_correct", 0)
+        lines += [
+            f"Win rate: <b>{wr_str}</b>  ·  {correct}/{total_sig} signals correct",
+            f"Avg P&amp;L at 72h: <b>{pnl_str}</b>",
+            f"Best trade: <b>{best_str}</b>  ·  Worst: <b>{worst_str}</b>",
+        ]
+    else:
+        lines.append("<i>No backtest data yet — accuracy tracking starts once signals are processed.</i>")
+
+    await update.message.reply_text(
+        tg_box(
+            f"🧠 Wallet Score — {short(address)}",
+            lines,
+            footer=f"Based on {total_sig} signal(s) · Smart Money Tracker",
+        ),
+        parse_mode="HTML",
+    )
+
+
 async def cmd_twitter_status(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -1109,3 +1396,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("clusters",             cmd_clusters))
     app.add_handler(CommandHandler("wallet_cluster",       cmd_wallet_cluster))
     app.add_handler(CommandHandler("bot_stats",            cmd_bot_stats))
+    # Insight commands
+    app.add_handler(CommandHandler("daily_summary",        cmd_daily_summary))
+    app.add_handler(CommandHandler("top_wallets",          cmd_top_wallets))
+    app.add_handler(CommandHandler("trending_buys",        cmd_trending_buys))
+    app.add_handler(CommandHandler("whale_leaderboard",    cmd_whale_leaderboard))
+    app.add_handler(CommandHandler("wallet_score",         cmd_wallet_score))

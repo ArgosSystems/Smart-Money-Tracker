@@ -20,6 +20,9 @@ Command groups
   Accumulation    (cmd_accumulation.py)  — /accumulation_alerts
   Exchange Flows  (cmd_exchange_flows.py)— /exchange_flows
   Clusters        (cmd_clusters.py)      — /clusters, /cluster_info, /wallet_cluster
+  Bot Stats       (cmd_bot_stats.py)     — /bot_stats
+  Insights        (cmd_insights.py)      — /daily_summary, /top_wallets, /trending_buys,
+                                           /whale_leaderboard, /wallet_score
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from .cmd_bluesky import setup_bluesky
 from .cmd_exchange_flows import setup_exchange_flows
 from .cmd_clusters import setup_clusters
 from .cmd_bot_stats import setup_bot_stats
+from .cmd_insights import setup_insights
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -62,3 +66,4 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_exchange_flows(bot)
     setup_clusters(bot)
     setup_bot_stats(bot)
+    setup_insights(bot)

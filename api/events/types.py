@@ -142,3 +142,24 @@ class ExchangeFlowAlertEvent(AlertDTO):
     """
 
     alert_type: AlertType = field(default=AlertType.EXCHANGE_FLOW, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DailySummaryEvent(AlertDTO):
+    """
+    Dispatched at 8 AM UTC every day — aggregated whale activity digest.
+
+    Expected metadata keys
+    ----------------------
+    date_label              : str          — "2026-03-20"
+    total_volume_24h_usd    : float        — total USD moved across all whale alerts
+    alert_count_24h         : int          — number of whale alerts in last 24 h
+    top_moves               : list[dict]   — top 5 by amount_usd (wallet, token, amount_usd, direction, chain)
+    most_accumulated_token  : str | None   — token symbol whales bought most (by count)
+    most_accumulated_volume : float        — USD volume of most accumulated token
+    top_flow_direction      : str | None   — "OUTFLOW" | "INFLOW" dominant in last 24 h
+    top_flow_token          : str | None   — token symbol of top exchange flow
+    top_flow_amount_usd     : float        — USD amount of top exchange flow move
+    """
+
+    alert_type: AlertType = field(default=AlertType.DAILY_SUMMARY, init=False)

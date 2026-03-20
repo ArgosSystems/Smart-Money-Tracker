@@ -29,6 +29,7 @@ from api.routers import (
     exchange_flows as exchange_flows_router,
     clusters as clusters_router,
     backtest as backtest_router,
+    insights as insights_router,
 )
 from api.services.whale_tracker import MultiChainTracker
 from api.services.price_alerts import PriceAlertChecker
@@ -50,11 +51,12 @@ _price_checker_task: asyncio.Task | None = None
 _portfolio_task: asyncio.Task | None = None
 _cluster_task: asyncio.Task | None = None
 _backtest_task: asyncio.Task | None = None
+_daily_summary_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _tracker_task, _price_checker_task, _portfolio_task, _cluster_task, _backtest_task
+    global _tracker_task, _price_checker_task, _portfolio_task, _cluster_task, _backtest_task, _daily_summary_task
 
     await init_db()
     logger.info("Running database migration (safe on fresh DB)…")
@@ -81,6 +83,11 @@ async def lifespan(app: FastAPI):
     from api.services.backtester import Backtester  # noqa: PLC0415
     backtester = Backtester()
     _backtest_task = asyncio.create_task(backtester.start(), name="backtester")
+
+    logger.info("Starting DailySummaryScheduler…")
+    from api.services.daily_summary import DailySummaryScheduler  # noqa: PLC0415
+    daily_summary_scheduler = DailySummaryScheduler()
+    _daily_summary_task = asyncio.create_task(daily_summary_scheduler.start(), name="daily_summary")
 
     # ── Event dispatcher + broadcaster plugins ─────────────────────────────
     logger.info("Initializing EventDispatcher…")
@@ -125,7 +132,7 @@ async def lifespan(app: FastAPI):
 
     await event_dispatcher.stop_all()
 
-    for task in (_tracker_task, _price_checker_task, _portfolio_task, _cluster_task, _backtest_task):
+    for task in (_tracker_task, _price_checker_task, _portfolio_task, _cluster_task, _backtest_task, _daily_summary_task):
         if task and not task.done():
             task.cancel()
             try:
@@ -170,6 +177,7 @@ app.include_router(guilds.router)
 app.include_router(exchange_flows_router.router)
 app.include_router(clusters_router.router)
 app.include_router(backtest_router.router)
+app.include_router(insights_router.router)
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>
