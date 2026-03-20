@@ -163,6 +163,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/set_alerts [min_score] [chains] [types] — push alerts to this chat",
             "/status — API health",
             "/twitter_status — Twitter broadcaster (admin only)",
+            "/bot_stats — signal win rate and avg gains",
             "",
             "<b>Clustering</b>",
             "/clusters [chain] [count] — entities behind multiple wallets",
@@ -967,6 +968,59 @@ async def cmd_scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+async def cmd_bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /bot_stats
+    Show win rate and avg P&L per signal type based on historical backtesting.
+    """
+    data = await _get("/backtest/stats")
+
+    if not isinstance(data, dict):
+        await update.message.reply_text(
+            "❌ No accuracy data yet. Stats appear once signals have been backfilled."
+        )
+        return
+
+    def _fmt_block(label: str, emoji: str, stats: dict) -> str:
+        total   = stats.get("total_signals", 0)
+        correct = stats.get("total_correct", 0)
+        wr      = stats.get("win_rate_pct", 0.0)
+        p72     = stats.get("avg_pnl_72h_pct", 0.0)
+        p7d     = stats.get("avg_pnl_7d_pct", 0.0)
+        if total == 0:
+            return f"{emoji} <b>{label}</b>\n  No signals processed yet."
+        sign_72 = "+" if p72 >= 0 else ""
+        sign_7d = "+" if p7d >= 0 else ""
+        return (
+            f"{emoji} <b>{label}</b>\n"
+            f"  Win rate: <b>{wr:.0f}%</b> ({correct}/{total} signals correct)\n"
+            f"  Avg gain: <b>{sign_72}{p72:.1f}%</b> at 72h · <b>{sign_7d}{p7d:.1f}%</b> at 7d"
+        )
+
+    acc  = data.get("accumulation",  {})
+    exfl = data.get("exchange_flow", {})
+    generated = (data.get("generated_at") or "")[:16].replace("T", " ")
+
+    lines = [
+        _fmt_block("Accumulation Signals",  "🎯", acc),
+        _fmt_block("Exchange Flow Signals",  "📡", exfl),
+        "",
+        "<b>How we measure accuracy</b>",
+        "A signal is <i>correct</i> if the token price moved &gt;5% in the "
+        "predicted direction within 72 hours of the alert firing.",
+        "Price data: DeFiLlama historical API.",
+    ]
+
+    await update.message.reply_text(
+        tg_box(
+            "Smart Money Tracker — Accuracy Stats",
+            lines,
+            footer=f"Based on all signals since launch · Updated: {generated} UTC",
+        ),
+        parse_mode="HTML",
+    )
+
+
 async def cmd_twitter_status(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -1054,3 +1108,4 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("exchange_flows",       cmd_exchange_flows))
     app.add_handler(CommandHandler("clusters",             cmd_clusters))
     app.add_handler(CommandHandler("wallet_cluster",       cmd_wallet_cluster))
+    app.add_handler(CommandHandler("bot_stats",            cmd_bot_stats))

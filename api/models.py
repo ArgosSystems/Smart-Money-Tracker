@@ -650,6 +650,62 @@ class SeenTransaction(Base):
         return f"<SeenTransaction {self.chain}:{self.tx_hash[:12]}…>"
 
 
+class BacktestResult(Base):
+    """
+    Price-outcome record for an AccumulationEvent or ExchangeFlowEvent signal.
+
+    Tracks the token price at the moment the signal fired, then at +24h, +72h,
+    and +7d using DeFiLlama historical prices.  Used to answer:
+    "How accurate is Smart Money Tracker?"
+
+    signal_type: "accumulation" | "exchange_flow"
+    flow_direction: "INFLOW" | "OUTFLOW" | NULL (only for exchange_flow signals)
+    was_correct_72h: True when the price moved >5% in the predicted direction
+                     (up for accumulation/INFLOW, down for OUTFLOW)
+    """
+
+    __tablename__ = "backtest_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "signal_type", "source_event_id",
+            name="uq_backtest_signal",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # accumulation | exchange_flow
+    flow_direction: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # INFLOW | OUTFLOW
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True, index=True)
+    token_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    source_event_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+    # Prices fetched from DeFiLlama historical API
+    signal_fired_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, index=True)
+    signal_price_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    price_24h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_72h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_7d_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Percentage changes vs signal price
+    pnl_24h_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pnl_72h_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pnl_7d_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Correctness flags (directionally-aware)
+    was_correct_24h: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    was_correct_72h: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    processed_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return (
+            f"<BacktestResult {self.signal_type} {self.chain}:{self.wallet_address[:8]} "
+            f"{self.token_symbol} pnl72h={self.pnl_72h_pct} correct={self.was_correct_72h}>"
+        )
+
+
 # ── DB lifecycle helpers ──────────────────────────────────────────────────────
 
 async def init_db() -> None:
@@ -670,6 +726,7 @@ async def init_db() -> None:
         ("alert_deliveries",    "delivered_at"),
         ("accumulation_events", "fired_at"),
         ("exchange_flow_events","fired_at"),
+        ("backtest_results",    "signal_fired_at"),
     ]:
         try:
             async with engine.begin() as conn:

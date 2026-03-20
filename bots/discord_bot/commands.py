@@ -41,6 +41,7 @@ from .cmd_telegram_channel import setup_telegram_channel
 from .cmd_bluesky import setup_bluesky
 from .cmd_exchange_flows import setup_exchange_flows
 from .cmd_clusters import setup_clusters
+from .cmd_bot_stats import setup_bot_stats
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -60,3 +61,4 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_bluesky(bot)
     setup_exchange_flows(bot)
     setup_clusters(bot)
+    setup_bot_stats(bot)

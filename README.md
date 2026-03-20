@@ -4,7 +4,7 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v2.7.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+[![Version](https://img.shields.io/badge/version-v2.8.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -61,6 +61,7 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
 | 🌐 | **External Deployment** | Set `API_BASE_URL` once to point bots at any VPS, Pterodactyl node, or domain |
 | 🔐 | **Discord OAuth2** | `/invite` command generates a scoped bot-invite link automatically |
+| 📉 | **Backtesting Engine** | Automatically measures signal accuracy — win rate, avg P&L at 24h/72h/7d for every Accumulation and Exchange Flow signal; `/bot_stats` shows live accuracy proof |
 
 ---
 
@@ -98,6 +99,10 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 │  │  enriched at scan time        │   │  via SmartLabel exchanges  │   │  Pattern · Union-Find│ │
 │  │  per-guild via /whois         │   │  1-hour cooldown           │   │  rebuild every 10 min│ │
 │  └───────────────────────────────┘   └────────────────────────────┘   └──────────────────────┘ │
+│  ┌── Backtester ─────────────────────────────────────────────────────────────────────────────┐  │
+│  │  Runs on startup + daily UTC midnight · DeFiLlama historical prices · /bot_stats command  │  │
+│  │  AccumulationEvent + ExchangeFlowEvent → price@signal · +24h · +72h · +7d → win rate     │  │
+│  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
 └──────────┬──────────────────────┬──────────────────────┬──────────────────────────────────────┘
            │                      │                       │
 ┌──────────▼─────────┐  ┌────────▼──────────┐  ┌─────────▼──────────┐
@@ -112,7 +117,8 @@ Backend scaling • 5 chains • WebSocket • Dashboard
            │            │  TwitterPost ⏱    │
   ⬛ ETH  🔵 Base  🔶 ARB  │  TGChannelPost ⏱  │
   🟡 BSC  🟣 MATIC  🔴 OP  │  BlueSkyPost ⏱   │
-  ◎ SOL               └───────────────────┘
+  ◎ SOL               │  BacktestResult ⏱ │
+                      └───────────────────┘
 ```
 
 ---
@@ -802,7 +808,8 @@ See [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
 - [x] Bluesky (AT Protocol) broadcaster with priority queue and circuit breaker
 - [x] Per-alert-type budget allocation — separate reserved pools across all 3 broadcasters
 - [x] Bulk Pro label CSV importer (`admin/import_pro_labels.py`)
-- [ ] Web dashboard with live charts (real-time P&L curves, accumulation heatmap)
+- [x] Backtesting engine — historical signal accuracy (win rate, avg P&L at 24h/72h/7d) via DeFiLlama; `/bot_stats` command; `GET /api/v1/backtest/stats` + `/metrics/performance` for landing page
+- [ ] Web dashboard with live charts (real-time P&L curves, accumulation heatmap, accuracy metrics)
 - [ ] Expand Pro label database beyond 300 entities (Solana wallets, Layer 2 smart money)
 - [ ] Machine learning for whale behavior prediction
 - [ ] Kubernetes Helm charts

@@ -5,7 +5,8 @@ Observability endpoints for the event dispatcher and broadcaster plugins.
 
 Routes
 ------
-GET  /api/v1/metrics/events  — dispatcher metrics (total dispatched, per-plugin stats)
+GET  /api/v1/metrics/events       — dispatcher metrics (total dispatched, per-plugin stats)
+GET  /api/v1/metrics/performance  — signal accuracy stats (win rate, avg P&L)
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from api.events.dispatcher import event_dispatcher
+from api.services.backtester import get_stats
 
 router = APIRouter(prefix="/api/v1/metrics", tags=["Metrics"])
 
@@ -21,3 +23,13 @@ router = APIRouter(prefix="/api/v1/metrics", tags=["Metrics"])
 async def event_metrics() -> dict:
     """Return delivery metrics for all registered broadcaster plugins."""
     return event_dispatcher.dispatch_metrics
+
+
+@router.get("/performance", summary="Signal accuracy performance stats")
+async def performance_metrics() -> dict:
+    """
+    Return win rate and average P&L per signal type.
+    Suitable for the landing page proof-of-accuracy section.
+    Mirrors GET /api/v1/backtest/stats.
+    """
+    return await get_stats()

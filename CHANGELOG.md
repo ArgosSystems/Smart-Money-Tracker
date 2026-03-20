@@ -5,6 +5,51 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-03-20
+
+### Added
+
+#### Backtesting Engine 🎯
+- **`api/services/backtester.py`** — `Backtester` background service + standalone helpers:
+  - `fetch_historical_price(token_address, chain, at, client)` — fetches token price at any point in time via the DeFiLlama historical price API (`coins.llama.fi/prices/historical/{unix_ts}/{coin_key}`); same provider as the existing price-alert checker, no API key, no rate limits
+  - `backfill_results()` — iterates every `AccumulationEvent` and `ExchangeFlowEvent` record in the DB that has not yet been processed; for each signal fetches the price at signal time and at **+24 h**, **+72 h**, and **+7 d**; calculates `pnl_*_pct` and the directionally-aware `was_correct_*` flags; inserts a `BacktestResult` row; skips signals that are less than 24 h old or for which DeFiLlama has no price data
+  - `get_stats()` — aggregates `backtest_results` into `win_rate_pct`, `avg_pnl_72h_pct`, `avg_pnl_24h_pct`, `avg_pnl_7d_pct`, `total_signals`, and `total_correct` per signal type; only rows where `was_correct_72h IS NOT NULL` count towards the win rate denominator
+  - `Backtester.start()` — runs `backfill_results()` once on startup, then sleeps until **UTC midnight** and repeats daily; registered in `api/main.py` lifespan as `_backtest_task` alongside the existing tracker/checker/portfolio/cluster tasks
+- **`BacktestResult` ORM model** (`api/models.py`) — new `backtest_results` TimescaleDB hypertable (partition column: `signal_fired_at`):
+  - `signal_type` — `"accumulation"` | `"exchange_flow"`
+  - `flow_direction` — `"INFLOW"` | `"OUTFLOW"` | `NULL` (exchange_flow signals only)
+  - `wallet_address`, `chain`, `token_address`, `token_symbol`
+  - `source_event_id` — id of the originating `AccumulationEvent` or `ExchangeFlowEvent`; unique constraint `(signal_type, source_event_id)` prevents double-processing
+  - `signal_fired_at`, `signal_price_usd`
+  - `price_24h_usd`, `price_72h_usd`, `price_7d_usd` — `NULL` when the window has not yet elapsed
+  - `pnl_24h_pct`, `pnl_72h_pct`, `pnl_7d_pct` — percentage change vs signal price
+  - `was_correct_24h`, `was_correct_72h` — directionally-aware boolean flags:
+    - Accumulation + Exchange INFLOW (bullish) → `True` when `pnl_72h_pct > +5 %`
+    - Exchange OUTFLOW (bearish) → `True` when `pnl_72h_pct < −5 %`
+  - `processed_at` — timestamp of backtest row creation
+- **`api/routers/backtest.py`** — three endpoints registered under `/api/v1/backtest`:
+  - `GET /api/v1/backtest/stats` — returns win rate + avg P&L per signal type; the primary data source for the `/bot_stats` command and the landing page accuracy section
+  - `GET /api/v1/backtest/results` — paginated raw `BacktestResult` rows; query params: `signal_type`, `chain`, `was_correct`, `limit` (≤ 200), `offset`
+  - `POST /api/v1/backtest/run` — triggers a manual backfill in the background; protected by an `asyncio.Lock` so concurrent requests return `202 already_running` immediately
+- **`GET /api/v1/metrics/performance`** (`api/routers/metrics.py`) — mirrors `/backtest/stats`; exposed on the metrics prefix for the future landing page dashboard
+- **`/bot_stats` Discord slash command** (`bots/discord_bot/cmd_bot_stats.py`):
+  - CV2 card (Components V2 `LayoutView` + `Container`) matching the existing command style
+  - Shows per-signal-type accuracy: `🎯 Accumulation Signals — Win rate: 71% (101/142 correct) — Avg gain: +18.3% at 72h · +24.7% at 7d`
+  - Shows `📡 Exchange Flow Signals` block with the same stats
+  - Includes a brief methodology note: threshold definition, DeFiLlama as price source
+  - Returns a friendly "no data yet" message when backtest_results is empty
+- **`/bot_stats` Telegram command** (`bots/telegram_bot/handlers.py`):
+  - HTML-formatted `tg_box()` card matching the existing Telegram command style
+  - Registered as `CommandHandler("bot_stats", cmd_bot_stats)`
+  - Added to the `/start` help menu under Utilities
+
+### Changed
+
+- `api/main.py` — `_backtest_task` added to the lifespan task tuple; `Backtester` imported lazily inside lifespan (consistent with `ClusterAnalyzer` pattern); backtest router included via `app.include_router(backtest_router.router)`
+- `bots/discord_bot/commands.py` — `setup_bot_stats` imported and called in `setup_commands()`
+
+---
+
 ## [2.7.0] - 2026-03-19
 
 ### Added
