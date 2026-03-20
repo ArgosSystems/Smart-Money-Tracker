@@ -399,7 +399,11 @@ class EvmChainScanner(BaseChainScanner):
                             "block_number":   alert.block_number,
                             "detected_at":    alert.detected_at.isoformat() if alert.detected_at else None,
                             "smart_money_score": None,
-                            "entity_type":    "unknown",
+                            "entity_type": (
+                                getattr(alert, 'from_smart_label_entity_type', None)
+                                or getattr(alert, 'to_smart_label_entity_type', None)
+                                or "unknown"
+                            ),
                             "from_smart_label_name": alert.from_smart_label_name if hasattr(alert, 'from_smart_label_name') else None,
                             "from_smart_label_tier": alert.from_smart_label_tier if hasattr(alert, 'from_smart_label_tier') else None,
                             "to_smart_label_name":   alert.to_smart_label_name if hasattr(alert, 'to_smart_label_name') else None,
@@ -523,9 +527,11 @@ class EvmChainScanner(BaseChainScanner):
         # Attach transient attributes for the event dispatcher
         setattr(alert, 'from_smart_label_name', from_smart['name'] if from_smart else None)
         setattr(alert, 'from_smart_label_tier', from_smart['tier'] if from_smart else None)
+        setattr(alert, 'from_smart_label_entity_type', from_smart['entity_type'] if from_smart else None)
         setattr(alert, 'to_smart_label_name', to_smart['name'] if to_smart else None)
         setattr(alert, 'to_smart_label_tier', to_smart['tier'] if to_smart else None)
-        
+        setattr(alert, 'to_smart_label_entity_type', to_smart['entity_type'] if to_smart else None)
+
         db.add(alert)
         await self._upsert_token_activity(db, token_addr, meta["symbol"], direction, usd_value)
 
@@ -585,9 +591,11 @@ class EvmChainScanner(BaseChainScanner):
         
         setattr(alert, 'from_smart_label_name', from_smart['name'] if from_smart else None)
         setattr(alert, 'from_smart_label_tier', from_smart['tier'] if from_smart else None)
+        setattr(alert, 'from_smart_label_entity_type', from_smart['entity_type'] if from_smart else None)
         setattr(alert, 'to_smart_label_name', to_smart['name'] if to_smart else None)
         setattr(alert, 'to_smart_label_tier', to_smart['tier'] if to_smart else None)
-        
+        setattr(alert, 'to_smart_label_entity_type', to_smart['entity_type'] if to_smart else None)
+
         db.add(alert)
 
         logger.info(
