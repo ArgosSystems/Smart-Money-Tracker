@@ -24,7 +24,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import TrackedWallet, WalletPosition, get_db
+from api.models import SmartLabel, TrackedWallet, WalletPosition, get_db
 from api.services.price_alerts import fetch_token_price, get_trending_tokens
 from config.chains import CHAIN_NAMES, CHAINS, active_chains
 from config.settings import settings
@@ -61,10 +61,15 @@ _SOL_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+_VALID_ENTITY_TYPES = {"whale", "vc", "exchange", "fund", "mev"}
+
+
 class TrackWalletRequest(BaseModel):
     address: str
     chain: str = "ethereum"
     label: Optional[str] = None
+    entity_type: str = "whale"
+    tier: Optional[str] = None  # "free" | "pro" — callers enforce admin-only for "pro"
 
     @field_validator("chain")
     @classmethod
@@ -72,6 +77,26 @@ class TrackWalletRequest(BaseModel):
         v = v.lower()
         if v not in CHAIN_NAMES:
             raise ValueError(f"Unknown chain '{v}'. Supported: {', '.join(CHAIN_NAMES)}")
+        return v
+
+    @field_validator("entity_type")
+    @classmethod
+    def validate_entity_type(cls, v: str) -> str:
+        v = v.lower()
+        if v not in _VALID_ENTITY_TYPES:
+            raise ValueError(
+                f"entity_type must be one of: {', '.join(sorted(_VALID_ENTITY_TYPES))}"
+            )
+        return v
+
+    @field_validator("tier")
+    @classmethod
+    def validate_tier(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.lower()
+        if v not in {"free", "pro"}:
+            raise ValueError("tier must be 'free' or 'pro'")
         return v
 
     @model_validator(mode="after")
@@ -125,6 +150,63 @@ class ChainStatusResponse(BaseModel):
     configured: bool   # True if RPC URL is set
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+async def _upsert_smart_label(
+    db: AsyncSession,
+    address: str,
+    chain: str,
+    label: Optional[str],
+    entity_type: str = "whale",
+    tier: Optional[str] = None,
+) -> None:
+    """
+    Insert or selectively update a SmartLabel row for this wallet.
+
+    Rules on update (existing row):
+      - Name  : overwrite only when a new non-empty label is provided.
+      - Tier  : upgrade free → pro; never downgrade pro → free.
+      - entity_type : never overwrite — the value already stored wins.
+    """
+    existing = await db.scalar(
+        select(SmartLabel).where(
+            and_(SmartLabel.address == address, SmartLabel.chain == chain)
+        )
+    )
+    if existing:
+        changed = False
+        if label and label != existing.name:
+            existing.name = label
+            changed = True
+        if tier == "pro" and existing.tier != "pro":
+            existing.tier = "pro"
+            changed = True
+        # entity_type: intentionally never overwritten on update
+        if changed:
+            try:
+                await db.commit()
+            except Exception as exc:
+                await db.rollback()
+                logger.debug("SmartLabel update failed for %s on %s: %s", address, chain, exc)
+        return
+
+    # New insert
+    name           = label or f"{address[:6]}…{address[-4:]}"
+    effective_tier = tier if tier in ("free", "pro") else "free"
+    db.add(SmartLabel(
+        address=address,
+        chain=chain,
+        name=name,
+        entity_type=entity_type,
+        tier=effective_tier,
+    ))
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.debug("SmartLabel upsert skipped for %s on %s: %s", address, chain, exc)
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post(
@@ -163,6 +245,7 @@ async def track_wallet(
         if updated:
             await db.commit()
             await db.refresh(existing)
+        await _upsert_smart_label(db, payload.address, payload.chain, payload.label, payload.entity_type, payload.tier)
         result = WalletResponse.model_validate(existing)
         result.label_updated = label_updated
         return result
@@ -176,6 +259,7 @@ async def track_wallet(
     db.add(wallet)
     await db.commit()
     await db.refresh(wallet)
+    await _upsert_smart_label(db, payload.address, payload.chain, payload.label, payload.entity_type, payload.tier)
     return WalletResponse.model_validate(wallet)
 
 

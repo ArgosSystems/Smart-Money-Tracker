@@ -149,7 +149,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [
             "Track on-chain whale wallets in real time across 6 chains.\n",
             "<b>Whale tracking</b>",
-            "/track &lt;address&gt; [label] — track a wallet",
+            "/track &lt;address&gt; [label] [type:whale|vc|exchange|fund|mev] [tier:pro] — track a wallet",
             "/untrack &lt;address&gt; — stop tracking",
             "/alerts [count] — recent whale moves",
             "/smartmoney &lt;token&gt; — activity for a token",
@@ -187,20 +187,75 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, parse_mode="HTML")
 
 
+_VALID_ENTITY_TYPES = {"whale", "vc", "exchange", "fund", "mev"}
+_ENTITY_TYPE_EMOJI = {
+    "whale": "🐋", "vc": "🏢", "exchange": "🏦", "fund": "💼", "mev": "🤖",
+}
+
+
 async def cmd_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /track <address> [label] [type:whale|vc|exchange|fund|mev] [tier:pro]
+
+    type: defaults to 'whale'. tier:pro requires admin (TELEGRAM_ADMIN_IDS).
+    Examples:
+      /track 0xabc123 "Jump Trading" type:vc tier:pro
+      /track 0xdef456 type:mev
+    """
     args = context.args or []
     if not args:
         await update.message.reply_text(
-            "Usage: /track &lt;address&gt; [label]", parse_mode="HTML"
+            "Usage: /track &lt;address&gt; [label] [type:whale|vc|exchange|fund|mev] [tier:pro]",
+            parse_mode="HTML",
         )
         return
 
-    address = args[0]
-    label   = " ".join(args[1:]) if len(args) > 1 else None
+    address     = args[0]
+    entity_type = "whale"
+    tier        = None
+    label_parts: list[str] = []
 
-    payload: dict = {"address": address}
+    for arg in args[1:]:
+        low = arg.lower()
+        if low.startswith("type:"):
+            etype = low[5:]
+            if etype in _VALID_ENTITY_TYPES:
+                entity_type = etype
+            else:
+                await update.message.reply_text(
+                    f"❌ Unknown type <b>{etype}</b>. "
+                    f"Valid: {', '.join(sorted(_VALID_ENTITY_TYPES))}",
+                    parse_mode="HTML",
+                )
+                return
+        elif low.startswith("tier:"):
+            tier = low[5:]
+            if tier not in {"free", "pro"}:
+                await update.message.reply_text(
+                    "❌ tier must be <b>free</b> or <b>pro</b>.", parse_mode="HTML"
+                )
+                return
+        else:
+            label_parts.append(arg)
+
+    label = " ".join(label_parts) or None
+
+    # Admin-only guard for tier:pro
+    if tier == "pro":
+        user_id = update.effective_user.id if update.effective_user else 0
+        if not _is_telegram_admin(user_id):
+            await update.message.reply_text(
+                "⛔ <b>tier:pro</b> is restricted to admins.\n"
+                "Set <code>TELEGRAM_ADMIN_IDS=your_user_id</code> in <code>.env</code>.",
+                parse_mode="HTML",
+            )
+            return
+
+    payload: dict = {"address": address, "entity_type": entity_type}
     if label:
         payload["label"] = label
+    if tier:
+        payload["tier"] = tier
 
     data = await _post("/wallets/track", payload)
     if data is None:
@@ -209,10 +264,14 @@ async def cmd_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    etype_emoji = _ENTITY_TYPE_EMOJI.get(entity_type, "🔍")
     lines = [f"Address: <code>{data['address']}</code>"]
     if data.get("label"):
         lines.append(f"Label: <b>{data['label']}</b>")
     lines.append(f"Chain: {chain_badge(data.get('chain', 'ethereum'))}")
+    lines.append(f"Entity Type: {etype_emoji} <b>{entity_type.capitalize()}</b>")
+    if tier == "pro":
+        lines.append("Tier: 🔒 <b>Pro</b>")
     await update.message.reply_text(
         tg_box("✅ Wallet Tracked", lines), parse_mode="HTML"
     )

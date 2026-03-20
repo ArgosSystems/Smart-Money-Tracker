@@ -28,6 +28,23 @@ from ._shared import (
 )
 
 
+_ENTITY_TYPE_CHOICES = [
+    app_commands.Choice(name="Whale 🐋",     value="whale"),
+    app_commands.Choice(name="VC 🏢",        value="vc"),
+    app_commands.Choice(name="Exchange 🏦",  value="exchange"),
+    app_commands.Choice(name="Fund 💼",      value="fund"),
+    app_commands.Choice(name="MEV Bot 🤖",   value="mev"),
+]
+
+_TIER_CHOICES = [
+    app_commands.Choice(name="Pro 🔒 (admin only)", value="pro"),
+]
+
+_ENTITY_TYPE_EMOJI = {
+    "whale": "🐋", "vc": "🏢", "exchange": "🏦", "fund": "💼", "mev": "🤖",
+}
+
+
 def setup_whale(bot: commands.Bot) -> None:
 
     # /track_wallet
@@ -39,29 +56,62 @@ def setup_whale(bot: commands.Bot) -> None:
         address="Wallet address (0x...)",
         chain="Blockchain to monitor (default: Ethereum)",
         label="Optional nickname for this wallet",
+        entity_type="Entity classification (default: whale)",
+        tier="Tier override — pro requires admin role",
     )
-    @app_commands.choices(chain=CHAIN_CHOICES)
+    @app_commands.choices(chain=CHAIN_CHOICES, entity_type=_ENTITY_TYPE_CHOICES, tier=_TIER_CHOICES)
     async def track_wallet(
         interaction: discord.Interaction,
         address: str,
         chain: Optional[app_commands.Choice[str]] = None,
         label: Optional[str] = None,
+        entity_type: Optional[app_commands.Choice[str]] = None,
+        tier: Optional[app_commands.Choice[str]] = None,
     ) -> None:
         await interaction.response.defer(thinking=True)
         chain_value = chain.value if chain else "ethereum"
-        payload: dict = {"address": address, "chain": chain_value}
+        etype = entity_type.value if entity_type else "whale"
+
+        # Enforce admin-only for tier:pro
+        if tier and tier.value == "pro":
+            member = interaction.user
+            if not (
+                hasattr(member, "guild_permissions")
+                and member.guild_permissions.administrator
+            ):
+                await cv2_error(
+                    interaction,
+                    "Permission Denied",
+                    "Only server admins can assign `tier: pro`. Contact an admin.",
+                )
+                return
+
+        payload: dict = {"address": address, "chain": chain_value, "entity_type": etype}
         if label:
             payload["label"] = label
+        if tier:
+            payload["tier"] = tier.value
+
         data, err = await api_post("/wallets/track", payload)
         if data is None:
             await cv2_error(interaction, "Failed to track wallet", err or "Unknown error.")
             return
+
         cname = data.get("chain", chain_value)
         label_updated = data.get("label_updated", False)
+        etype_emoji = _ENTITY_TYPE_EMOJI.get(etype, "🔍")
+
         lines = [f"**Address:** `{data['address']}`"]
         if data.get("label"):
             lines.append(f"**Label:** {data['label']}")
-        lines += [f"**Chain:** {chain_badge(cname)}", "**Status:** Active"]
+        lines += [
+            f"**Chain:** {chain_badge(cname)}",
+            f"**Entity Type:** {etype_emoji} {etype.capitalize()}",
+            "**Status:** Active",
+        ]
+        if tier:
+            lines.append(f"**Tier:** 🔒 Pro")
+
         title = (
             f"Label updated on {chain_badge(cname)}"
             if label_updated
