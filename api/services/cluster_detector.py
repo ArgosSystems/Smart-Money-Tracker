@@ -54,6 +54,7 @@ from api.models import (
     TrackedWallet,
     WalletCluster,
     WhaleAlert,
+    WalletFundingEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,12 +63,13 @@ logger = logging.getLogger(__name__)
 
 _ANALYSIS_INTERVAL_SECONDS = 600   # re-run every 10 minutes
 _LOOKBACK_DAYS              = 7    # look back this many days of whale_alerts
+_FUNDING_LOOKBACK_DAYS      = 90   # look back further for wallet funding
 
 _TIMING_WINDOW_SECONDS      = 300  # 5-minute co-buy window
-_TIMING_MIN_COINCIDENCES    = 3    # minimum co-buys to emit a timing signal
+_TIMING_MIN_COINCIDENCES    = 2    # minimum co-buys to emit a timing signal
 
-_PATTERN_MIN_WALLETS        = 3    # min wallets in same-hour same-direction move
-_PATTERN_MIN_OCCURRENCES    = 2    # pattern must repeat across 2+ hour-buckets
+_PATTERN_MIN_WALLETS        = 2    # min wallets in same-hour same-direction move
+_PATTERN_MIN_OCCURRENCES    = 1    # pattern must repeat across 1+ hour-buckets
 
 _FUNDING_BASE_CONFIDENCE    = 0.70
 _TIMING_BASE_CONFIDENCE     = 0.60
@@ -259,7 +261,10 @@ async def _detect_funding(
     Method 1: Wallet A sent ETH/native directly to wallet B (SEND direction,
     both tracked, same chain).  If B then traded any of the same tokens as A
     → high confidence same entity.
+    Funding Method looks at WalletFundingEvents over 90 days.
     """
+    funding_lookback_start = datetime.datetime.utcnow() - datetime.timedelta(days=_FUNDING_LOOKBACK_DAYS)
+    
     for chain, wallets in chain_wallet_map.items():
         if len(wallets) < 2:
             continue
@@ -268,13 +273,12 @@ async def _detect_funding(
 
         # SEND alerts where both sides are tracked (same chain)
         sends_result = await db.execute(
-            select(WhaleAlert.from_address, WhaleAlert.to_address)
+            select(WalletFundingEvent.from_address, WalletFundingEvent.to_address)
             .where(and_(
-                WhaleAlert.chain     == chain,
-                WhaleAlert.direction == "SEND",
-                WhaleAlert.detected_at >= lookback_start,
-                WhaleAlert.from_address.in_(wallet_addrs),
-                WhaleAlert.to_address.in_(wallet_addrs),
+                WalletFundingEvent.chain     == chain,
+                WalletFundingEvent.timestamp >= funding_lookback_start,
+                WalletFundingEvent.from_address.in_(wallet_addrs),
+                WalletFundingEvent.to_address.in_(wallet_addrs),
             ))
             .distinct()
         )

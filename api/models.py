@@ -706,6 +706,32 @@ class BacktestResult(Base):
         )
 
 
+
+class WalletFundingEvent(Base):
+    """
+    Records direct wallet-to-wallet transfers (primarily native gas tokens)
+    without applying the $10k whale alert threshold.
+    Used exclusively by the clustering service (Method 1: Funding Source).
+    """
+
+    __tablename__ = "wallet_funding_events"
+    __table_args__ = (
+        UniqueConstraint("tx_hash", "chain", name="uq_funding_event_tx_chain"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    from_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    to_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    tx_hash: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    def __repr__(self) -> str:
+        return f"<WalletFundingEvent {self.chain}:{self.from_address[:8]} → {self.to_address[:8]}>"
+
+
 # ── DB lifecycle helpers ──────────────────────────────────────────────────────
 
 async def init_db() -> None:
@@ -727,6 +753,7 @@ async def init_db() -> None:
         ("accumulation_events", "fired_at"),
         ("exchange_flow_events","fired_at"),
         ("backtest_results",    "signal_fired_at"),
+        ("wallet_funding_events", "timestamp"),
     ]:
         try:
             async with engine.begin() as conn:

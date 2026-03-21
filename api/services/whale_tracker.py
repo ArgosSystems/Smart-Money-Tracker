@@ -54,7 +54,8 @@ except ImportError:
         _POAMiddleware = None  # type: ignore[assignment]
 from web3.types import FilterParams
 
-from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
+from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel, WalletFundingEvent
+import uuid
 from api.events.dispatcher import event_dispatcher
 from api.events.types import AccumulationAlertEvent, ExchangeFlowAlertEvent, WhaleAlertEvent
 from api.services.position_tracker import update_position
@@ -573,15 +574,34 @@ class EvmChainScanner(BaseChainScanner):
         eth_value = float(self.w3.from_wei(tx["value"], "ether"))
         usd_value = eth_value * eth_price
 
-        if usd_value < settings.whale_threshold_usd:
-            return None
-
         direction = "SEND" if from_addr in wallet_set else "BUY"
         wallet    = wallet_map.get(from_addr) or wallet_map.get(to_addr)
         if not wallet:
             return None
 
         tx_hash = tx["hash"].hex()
+        
+        # Save to WalletFundingEvent regardless of size (required for clustering Method 1)
+        exists_funding = await db.scalar(
+            select(WalletFundingEvent.id)
+            .where(and_(WalletFundingEvent.tx_hash == tx_hash, WalletFundingEvent.chain == self.chain_name))
+            .limit(1)
+        )
+        if not exists_funding:
+            funding = WalletFundingEvent(
+                id=str(uuid.uuid4()),
+                chain=self.chain_name,
+                from_address=from_addr,
+                to_address=to_addr,
+                token_address=None,
+                amount=eth_value,
+                tx_hash=tx_hash
+            )
+            db.add(funding)
+
+        if usd_value < settings.whale_threshold_usd:
+            return None
+
         if await self._alert_exists(db, tx_hash):
             return None
 
