@@ -4,23 +4,20 @@
 
 # 🐋 Smart Money Tracker
 
-[![Version](https://img.shields.io/badge/version-v3.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
+Real-time whale monitoring across Ethereum, Base, Arbitrum, BSC, Polygon, Optimism, and Solana. Open-core engine powering the Smart Money Platform.
+
+[![Version](https://img.shields.io/badge/version-v3.1.0-6366f1.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker/releases)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3B82F6.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Discord.py](https://img.shields.io/badge/discord.py-2.7.1-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discordpy.readthedocs.io/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Docker-22c55e.svg?style=for-the-badge)](https://github.com/ArgosSystems/Smart-Money-Tracker)
 
-**Track whale wallets across multiple chains in real-time and get instant alerts on Discord or Telegram.**
-
-Smart Money Tracker monitors wallets on **Ethereum, Base, Arbitrum, BSC, Polygon, Optimism, and Solana** for large transactions, calculates USD values, and delivers beautiful alerts to your favorite messaging platform. Perfect for traders, researchers, and crypto enthusiasts who want to follow the "smart money."
-
 **Founded by [@ArgosSystems](https://github.com/ArgosSystems)**
 Architected with Claude Code • Multi-chain vision • Smart Money labels
 
 **Accelerated by [@aymenelouadi](https://github.com/aymenelouadi)**
 Backend scaling • 5 chains • WebSocket • Dashboard
-
 
 [📖 Docs](#-api-documentation) · [🚀 Quick Start](#-quick-start) · [🤖 Bot Commands](#-bot-commands) · [⚙️ Configuration](#️-configuration) · [🤝 Contributing](#-contributing)
 
@@ -29,6 +26,18 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 </a>
 
 </div>
+
+## What This Repo Contains (Open Source)
+
+- **Multi-chain tracking engine** (EVM + Solana)
+- **Real-time alert system** (Discord, Telegram, WebSocket)
+- **REST API** with Swagger/OpenAPI docs
+- **Portfolio tracking** with TimescaleDB hypertables
+- **Self-hostable infrastructure** (Docker Compose)
+
+## Advanced Features
+
+Advanced behavioral intelligence, historical backtesting, and predictive clustering are available through our [managed platform](#) (coming Q2 2026).
 
 ---
 
@@ -48,7 +57,6 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 📊 | **Trending Tokens** | See which tokens whales are accumulating or dumping across all chains |
 | 🔁 | **Accumulation Detection** | Fires when a whale buys the same token 3+ times in 24 h with ≥ $50 K total volume |
 | 🔴🟢 | **Exchange Flow Detection** | Detects whale → exchange (OUTFLOW 🔴 sell signal) and exchange → whale (INFLOW 🟢 buy signal) using SmartLabel exchange addresses; 1-hour cooldown per wallet/exchange/token triple |
-| 🕵️ | **Wallet Clustering** | Groups multiple wallets controlled by the same entity using funding, timing, and directional-pattern signals — no ML, no external APIs; rebuilds every 10 min from your own DB |
 | 🐦 | **Twitter/X Broadcasting** | Auto-posts all alert types to Twitter/X with priority scoring, per-type budget pools, rate limiting, and circuit breaker resilience |
 | 📢 | **Telegram Channel Broadcasting** | Broadcasts alerts to a public Telegram channel with the same queue/rate-limit/circuit-breaker stack as Twitter |
 | 🦋 | **Bluesky Broadcasting** | Posts alerts to Bluesky (AT Protocol) with configurable daily budget, critical reserve, and dry-run mode |
@@ -61,9 +69,6 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 | 🎨 | **Visual Dashboard** | Dark-theme web UI served at the root URL |
 | 🌐 | **External Deployment** | Set `API_BASE_URL` once to point bots at any VPS, Pterodactyl node, or domain |
 | 🔐 | **Discord OAuth2** | `/invite` command generates a scoped bot-invite link automatically |
-| 🌐 | **Cross-Chain Entity Detection** | Link known addresses of the same entity across all chains — see what Jump Trading, Binance, or any labelled entity is doing across ALL chains in one view; `/entity` shows per-chain volume, combined P&L, recent alerts; whale alert cards enriched with "Also active on BSC today" |
-| 📉 | **Backtesting Engine** | Automatically measures signal accuracy — win rate, avg P&L at 24h/72h/7d for every Accumulation and Exchange Flow signal; `/bot_stats` shows live accuracy proof |
-
 ---
 
 ## 🏗️ Architecture

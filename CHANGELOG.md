@@ -5,6 +5,13 @@ All notable changes to Smart Money Tracker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-03-21
+
+### Architecture Evolution
+- **Smart Money Tracker Core**: Open source engine focused on real-time whale monitoring across 7 chains
+- **Smart Money Platform**: Advanced intelligence (clustering, backtesting, predictive ML) now powers our hosted infrastructure
+- Repository restructured to reflect open-core model: robust public foundation + proprietary intelligence layer
+
 ## [3.0.0] - 2026-03-20
 
 ### Added — Cross-Chain Entity Detection 🌐
