@@ -19,11 +19,8 @@ Command groups
   P&L             (cmd_pnl.py)           — /wallet_pnl
   Accumulation    (cmd_accumulation.py)  — /accumulation_alerts
   Exchange Flows  (cmd_exchange_flows.py)— /exchange_flows
-  Clusters        (cmd_clusters.py)      — /clusters, /cluster_info, /wallet_cluster
-  Bot Stats       (cmd_bot_stats.py)     — /bot_stats
   Insights        (cmd_insights.py)      — /daily_summary, /top_wallets, /trending_buys,
                                            /whale_leaderboard, /wallet_score
-  Cross-Chain     (cmd_cross_chain.py)  — /entity, /entity_lookup
 """
 
 from __future__ import annotations
@@ -44,10 +41,7 @@ from .cmd_accumulation import setup_accumulation
 from .cmd_telegram_channel import setup_telegram_channel
 from .cmd_bluesky import setup_bluesky
 from .cmd_exchange_flows import setup_exchange_flows
-from .cmd_clusters import setup_clusters
-from .cmd_bot_stats import setup_bot_stats
 from .cmd_insights import setup_insights
-from .cmd_cross_chain import setup_cross_chain
 
 
 def setup_commands(bot: commands.Bot) -> None:
@@ -66,7 +60,4 @@ def setup_commands(bot: commands.Bot) -> None:
     setup_telegram_channel(bot)
     setup_bluesky(bot)
     setup_exchange_flows(bot)
-    setup_clusters(bot)
-    setup_bot_stats(bot)
     setup_insights(bot)
-    setup_cross_chain(bot)

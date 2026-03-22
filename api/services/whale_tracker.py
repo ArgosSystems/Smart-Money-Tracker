@@ -54,15 +54,12 @@ except ImportError:
         _POAMiddleware = None  # type: ignore[assignment]
 from web3.types import FilterParams
 
-from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel, WalletFundingEvent
-import uuid
+from api.models import AsyncSessionLocal, TokenActivity, TrackedWallet, WhaleAlert, SmartLabel
 from api.events.dispatcher import event_dispatcher
 from api.events.types import AccumulationAlertEvent, ExchangeFlowAlertEvent, WhaleAlertEvent
 from api.services.position_tracker import update_position
 from api.services.accumulation_detector import check_accumulation
 from api.services.exchange_flow_detector import check_exchange_flow
-from api.services.cluster_detector import get_wallet_cluster_info
-from api.services.cross_chain_entity import enrich_alert_cross_chain
 from config.chains import CHAINS, ChainConfig, active_chains
 from config.settings import settings
 
@@ -376,17 +373,6 @@ class EvmChainScanner(BaseChainScanner):
                         alert.from_address if alert.direction in ("SELL", "SEND")
                         else alert.to_address
                     )
-                    cluster_info: Optional[dict] = None
-                    try:
-                        cluster_info = await get_wallet_cluster_info(db, whale_wallet_addr, alert.chain)
-                    except Exception as exc:
-                        logger.debug("[%s] cluster lookup failed: %s", self.chain_name, exc)
-
-                    cross_chain_info: Optional[dict] = None
-                    try:
-                        cross_chain_info = await enrich_alert_cross_chain(db, whale_wallet_addr, alert.chain)
-                    except Exception as exc:
-                        logger.debug("[%s] cross-chain lookup failed: %s", self.chain_name, exc)
 
                     await event_dispatcher.dispatch(WhaleAlertEvent(
                         alert_id=alert.id,
@@ -416,20 +402,6 @@ class EvmChainScanner(BaseChainScanner):
                             "from_smart_label_tier": alert.from_smart_label_tier if hasattr(alert, 'from_smart_label_tier') else None,
                             "to_smart_label_name":   alert.to_smart_label_name if hasattr(alert, 'to_smart_label_name') else None,
                             "to_smart_label_tier":   alert.to_smart_label_tier if hasattr(alert, 'to_smart_label_tier') else None,
-                            # Cluster enrichment — populated once clusters are detected
-                            "cluster_id":         cluster_info["cluster_id"]         if cluster_info else None,
-                            "cluster_label":      cluster_info["cluster_label"]      if cluster_info else None,
-                            "cluster_confidence": cluster_info["cluster_confidence"] if cluster_info else None,
-                            "cluster_size":       cluster_info["cluster_size"]       if cluster_info else None,
-                            "cluster_methods":    cluster_info["detection_methods"]  if cluster_info else None,
-                            "cluster_volume_usd": cluster_info["total_volume_usd"]  if cluster_info else None,
-                            # Cross-chain entity enrichment
-                            "cross_chain_entity":      cross_chain_info["entity_name"]            if cross_chain_info else None,
-                            "cross_chain_entity_type": cross_chain_info["entity_type"]            if cross_chain_info else None,
-                            "cross_chain_also_active":  cross_chain_info["also_active_on"]         if cross_chain_info else None,
-                            "cross_chain_total_addrs":  cross_chain_info["total_addresses"]        if cross_chain_info else None,
-                            "cross_chain_volume_usd":   cross_chain_info["cross_chain_volume_usd"] if cross_chain_info else None,
-                            "cross_chain_alert_count":  cross_chain_info["cross_chain_alert_count"] if cross_chain_info else None,
                         },
                     ))
 
@@ -581,24 +553,6 @@ class EvmChainScanner(BaseChainScanner):
 
         tx_hash = tx["hash"].hex()
         
-        # Save to WalletFundingEvent regardless of size (required for clustering Method 1)
-        exists_funding = await db.scalar(
-            select(WalletFundingEvent.id)
-            .where(and_(WalletFundingEvent.tx_hash == tx_hash, WalletFundingEvent.chain == self.chain_name))
-            .limit(1)
-        )
-        if not exists_funding:
-            funding = WalletFundingEvent(
-                id=str(uuid.uuid4()),
-                chain=self.chain_name,
-                from_address=from_addr,
-                to_address=to_addr,
-                token_address=None,
-                amount=eth_value,
-                tx_hash=tx_hash
-            )
-            db.add(funding)
-
         if usd_value < settings.whale_threshold_usd:
             return None
 

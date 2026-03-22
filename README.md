@@ -35,9 +35,17 @@ Backend scaling • 5 chains • WebSocket • Dashboard
 - **Portfolio tracking** with TimescaleDB hypertables
 - **Self-hostable infrastructure** (Docker Compose)
 
-## Advanced Features
+## 🚀 Evolution to the Smart Money Platform
 
-Advanced behavioral intelligence, historical backtesting, and predictive clustering are available through our [managed platform](#) (coming Q2 2026).
+To provide a more powerful and scalable experience, several advanced analytical features have been transitioned to our upcoming **[Smart Money Platform](#)** (currently in the building phase, coming Q2 2026).
+
+The following features have been successfully migrated to the new platform architecture:
+- **Wallet Clustering & Funding History**
+- **Historical Backtesting**
+- **Cross-Chain Entity Detection**
+
+This open-source core will continue to focus on maintaining a robust, real-time multi-chain whale tracking engine, while the managed platform will handle these complex predictive and historical analytics.
+
 
 ---
 
@@ -80,7 +88,7 @@ Advanced behavioral intelligence, historical backtesting, and predictive cluster
 │   Discord Bot    │  Web Dashboard   │  Telegram Bot    │         WebSocket Subscribers         │
 │ (discord.py 2.7) │ configurable URL │   (ptb 21.0)     │  • Real-time whale/price/accum alerts │
 │ • 34 commands    │ • Dark-theme UI  │ • Multi-chain    │  • score + chain + type filters       │
-│ • Components V2  │ • Swagger/ReDoc  │ • Clustering     │                                       │
+│ • Components V2  │ • Swagger/ReDoc  │                  │                                       │
 │ • Push alerts    │                  │ • Exchange flows │                                       │
 │ • Free / Pro     │                  │                  │                                       │
 └────────┬─────────┴────────┬─────────┴────────┬─────────┴───────────────────┬───────────────────┘
@@ -89,30 +97,22 @@ Advanced behavioral intelligence, historical backtesting, and predictive cluster
                             │                                                │
 ┌───────────────────────────▼────────────────────────────────────────────────────────────────────┐
 │                            FastAPI Backend  (Port 8000)                                         │
-│  Wallets · Alerts · Price Alerts · Exchange Flows · Clusters · Entity · Portfolio · Channels    │
+│  Wallets · Alerts · Price Alerts · Exchange Flows · Portfolio · Channels                        │
 │                                                                                                 │
 │  ┌── EventDispatcher (typed AlertDTO bus) ─────────────────────────────────────────────────┐   │
 │  │  WhaleAlertEvent / AccumulationAlertEvent / ExchangeFlowAlertEvent                     │   │
-│  │  PriceTriggerEvent / WalletClusterAlertEvent                                           │   │
+│  │  PriceTriggerEvent                                                                             │   │
 │  │       ├── WebSocketBroadcasterPlugin  → WS subscribers (score+chain+type filtered)    │   │
 │  │       ├── TwitterBroadcaster          → scoring → per-type budget pools → X API       │   │
 │  │       ├── TelegramChannelBroadcaster  → scoring → per-type budget pools → TG channel  │   │
 │  │       └── BlueSkyBroadcaster          → scoring → per-type budget pools → AT Protocol │   │
 │  └─────────────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                                 │
-│  ┌── SmartLabel Engine ──────────┐   ┌── Exchange Flow Detector ──┐   ┌── Cluster Analyzer ──┐ │
-│  │  80 free + 300 pro labels     │   │  OUTFLOW 🔴 / INFLOW 🟢    │   │  Funding · Timing    │ │
-│  │  enriched at scan time        │   │  via SmartLabel exchanges  │   │  Pattern · Union-Find│ │
-│  │  per-guild via /whois         │   │  1-hour cooldown           │   │  rebuild every 10 min│ │
-│  └───────────────────────────────┘   └────────────────────────────┘   └──────────────────────┘ │
-│  ┌── Cross-Chain Entity Detection ─────────────────────────────────────────────────────────────┐ │
-│  │  normalize_entity_name() → group SmartLabel addresses across chains → unified entity view   │ │
-│  │  /entity profile · /entity_lookup · alert enrichment ("Also active on BSC") · no new model │ │
-│  └─────────────────────────────────────────────────────────────────────────────────────────────┘ │
-│  ┌── Backtester ─────────────────────────────────────────────────────────────────────────────┐  │
-│  │  Runs on startup + daily UTC midnight · DeFiLlama historical prices · /bot_stats command  │  │
-│  │  AccumulationEvent + ExchangeFlowEvent → price@signal · +24h · +72h · +7d → win rate     │  │
-│  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
+│  ┌── SmartLabel Engine ──────────┐   ┌── Exchange Flow Detector ──┐                            │
+│  │  80 free + 300 pro labels     │   │  OUTFLOW 🔴 / INFLOW 🟢    │                            │
+│  │  enriched at scan time        │   │  via SmartLabel exchanges  │                            │
+│  │  per-guild via /whois         │   │  1-hour cooldown           │                            │
+│  └───────────────────────────────┘   └────────────────────────────┘                            │
 └──────────┬──────────────────────┬──────────────────────┬──────────────────────────────────────┘
            │                      │                       │
 ┌──────────▼─────────┐  ┌────────▼──────────┐  ┌─────────▼──────────┐
@@ -120,15 +120,13 @@ Advanced behavioral intelligence, historical backtesting, and predictive cluster
 │ • EvmChainScanner  │  │  WhaleAlert ⏱     │  │  (price feed,      │
 │ • SolanaScanner    │  │  ExchangeFlow ⏱   │  │   no API key)      │
 │ • SmartLabel       │  │  AccumEvent ⏱     │  └────────────────────┘
-│   enrichment       │  │  WalletCluster    │
-│ • Cluster          │  │  SmartLabel       │
+│   enrichment       │  │ • Cluster          │  │  SmartLabel       │
 │   enrichment       │  │  GuildSubscription│
 └──────────┬─────────┘  │  AlertChannel     │
            │            │  TwitterPost ⏱    │
   ⬛ ETH  🔵 Base  🔶 ARB  │  TGChannelPost ⏱  │
   🟡 BSC  🟣 MATIC  🔴 OP  │  BlueSkyPost ⏱   │
-  ◎ SOL               │  BacktestResult ⏱ │
-                      └───────────────────┘
+  ◎ SOL                                     └───────────────────┘
 ```
 
 ---
@@ -273,16 +271,6 @@ Once the API is running, access the interactive documentation at:
 | **Exchange Flow Detection** | | |
 | `GET` | `/api/v1/exchange-flows` | Recent exchange flow events (`?limit`, `?chain`, `?direction`, `?exchange`) |
 | `GET` | `/api/v1/exchange-flows/wallet/{address}` | Exchange flows for a specific whale wallet |
-| **Wallet Clustering** | | |
-| `GET` | `/api/v1/clusters` | List detected clusters (`?chain=`, `?min_confidence=`, paginated) |
-| `GET` | `/api/v1/clusters/{id}` | Single cluster with all members |
-| `GET` | `/api/v1/clusters/wallet/{address}` | All clusters containing a specific wallet |
-| `POST` | `/api/v1/clusters/analyze` | Trigger immediate re-analysis (background) |
-| **Cross-Chain Entity Detection** | | |
-| `GET` | `/api/v1/entity/list` | All known entities from SmartLabel DB with address counts |
-| `GET` | `/api/v1/entity/lookup/{address}` | Resolve address to cross-chain entity + all chain addresses |
-| `GET` | `/api/v1/entity/{name}` | Full cross-chain profile (per-chain volume, P&L, recent alerts) |
-| `GET` | `/api/v1/entity/{name}/activity` | Recent cross-chain whale activity for an entity |
 | **Token Safety** | | |
 | `GET` | `/api/v1/token-safety/{mint}` | Solana token safety report — risk score, mint/freeze authority, LP lock, top holders |
 | **Price Alerts** | | |
@@ -422,7 +410,7 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/track_wallet <address> [chain] [label]` | Start tracking a whale wallet |
 | `/untrack_wallet <address> [chain]` | Stop tracking a wallet |
 | `/wallets [chain]` | List all tracked whale wallets with labels and status |
-| `/whale_alerts [chain] [count]` | Show recent whale transactions (includes wallet label + cluster info) |
+| `/whale_alerts [chain] [count]` | Show recent whale transactions (includes wallet label) |
 | `/smart_money <token> [chain]` | Buy/sell sentiment for a specific token |
 | `/trending [chain]` | Top tokens whales are accumulating |
 
@@ -431,21 +419,6 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | Command | Description |
 |---------|-------------|
 | `/exchange_flows [chain] [direction] [count]` | Whale ↔ exchange flow events — OUTFLOW 🔴 (sell signals) and INFLOW 🟢 (buy signals) |
-
-**🕵️ Wallet Clustering**
-
-| Command | Description |
-|---------|-------------|
-| `/clusters [chain] [min_confidence] [count]` | List detected wallet clusters — groups of addresses controlled by the same entity |
-| `/cluster_info <id>` | Full details for a cluster: all members, detection methods, combined volume |
-| `/wallet_cluster <address> [chain]` | Check which cluster (entity) a wallet belongs to |
-
-**🌐 Cross-Chain Entity Detection**
-
-| Command | Description |
-|---------|-------------|
-| `/entity <name_or_address> [hours]` | Cross-chain entity profile — per-chain volume, combined P&L, recent alerts; pass address or name |
-| `/entity_lookup <address> [chain]` | Resolve any wallet address to its cross-chain entity and see all known addresses |
 
 **🛡️ Token Safety**
 
@@ -528,10 +501,6 @@ All responses use **Discord Components V2** (discord.py 2.7.1).
 | `/trending [chain]` | Top tokens whales are buying |
 | `/accumulation_alerts [chain] [count]` | Recent accumulation pattern alerts |
 | `/exchange_flows [chain] [OUTFLOW\|INFLOW] [count]` | Exchange flow events (sell/buy signals) |
-| `/clusters [chain] [count]` | Detected wallet clusters (same-entity groups) |
-| `/wallet_cluster <address> [chain]` | Which cluster a wallet belongs to |
-| `/entity <name_or_address> [hours]` | Cross-chain entity profile (per-chain volume, P&L, alerts) |
-| `/entity_lookup <address> [chain]` | Resolve address to its cross-chain entity |
 | `/chains` | List all supported chains |
 | `/status` | Check API health |
 
@@ -623,12 +592,10 @@ The Pro tier gate is enforced per-guild. Free guilds see publicly known entities
 | `TWITTER_BUDGET_RESERVE_WHALE` | `10` | Reserved daily slots for whale alerts (score ≥ 90) |
 | `TWITTER_BUDGET_RESERVE_EXCHANGE_FLOW` | `8` | Reserved daily slots for exchange flow alerts |
 | `TWITTER_BUDGET_RESERVE_ACCUMULATION` | `5` | Reserved daily slots for accumulation alerts |
-| `TWITTER_BUDGET_RESERVE_CLUSTER` | `10` | Reserved daily slots for wallet cluster alerts |
 | `TWITTER_ENABLE_WHALE_TWEETS` | `true` | Auto-post whale alerts |
 | `TWITTER_ENABLE_PRICE_TWEETS` | `true` | Auto-post price triggers |
 | `TWITTER_ENABLE_ACCUMULATION_TWEETS` | `true` | Auto-post accumulation alerts |
 | `TWITTER_ENABLE_EXCHANGE_FLOW_TWEETS` | `true` | Auto-post exchange flow alerts |
-| `TWITTER_ENABLE_CLUSTER_TWEETS` | `true` | Auto-post wallet cluster alerts |
 | `TWITTER_COOLDOWN_WALLET_HOURS` | `4.0` | Hours between tweets about the same wallet |
 | `TWITTER_COOLDOWN_TOKEN_HOURS` | `2.0` | Hours between tweets about the same token |
 
@@ -644,9 +611,7 @@ The Pro tier gate is enforced per-guild. Free guilds see publicly known entities
 | `TELEGRAM_CHANNEL_HOURLY_CAP` | `30` | Max posts per rolling 1h window |
 | `TELEGRAM_CHANNEL_MIN_SCORE` | `0.0` | No floor by default — generous budget |
 | `TELEGRAM_CHANNEL_CRITICAL_SCORE` | `80.0` | Alerts ≥ this score consume the reserved pool |
-| `TELEGRAM_CHANNEL_BUDGET_RESERVE_CLUSTER` | `40` | Reserved daily slots for cluster alerts |
 | `TELEGRAM_CHANNEL_ENABLE_EXCHANGE_FLOW_POSTS` | `true` | Auto-post exchange flow alerts |
-| `TELEGRAM_CHANNEL_ENABLE_CLUSTER_POSTS` | `true` | Auto-post wallet cluster alerts |
 
 ### Optional — Bluesky Broadcasting
 
@@ -660,9 +625,7 @@ The Pro tier gate is enforced per-guild. Free guilds see publicly known entities
 | `BLUESKY_HOURLY_CAP` | `10` | Max posts per rolling 1h window |
 | `BLUESKY_MIN_SCORE` | `35.0` | Discard alerts below this score |
 | `BLUESKY_CRITICAL_SCORE` | `80.0` | Alerts ≥ this score consume the reserved pool |
-| `BLUESKY_BUDGET_RESERVE_CLUSTER` | `10` | Reserved daily slots for cluster alerts |
 | `BLUESKY_ENABLE_EXCHANGE_FLOW_POSTS` | `true` | Auto-post exchange flow alerts |
-| `BLUESKY_ENABLE_CLUSTER_POSTS` | `true` | Auto-post wallet cluster alerts |
 
 ### Optional — General Settings
 
@@ -704,8 +667,6 @@ Smart-Money-Tracker/
 │   │   ├── whales.py             # Wallet management
 │   │   ├── price_alerts.py       # Price alert rules CRUD
 │   │   ├── exchange_flows.py     # Exchange flow event endpoints
-│   │   ├── clusters.py           # Wallet cluster endpoints + manual trigger
-│   │   ├── cross_chain.py       # Cross-chain entity detection endpoints
 │   │   ├── portfolio.py          # Portfolio wallet + snapshot endpoints
 │   │   ├── token_safety.py       # Solana token safety (RugCheck.xyz proxy)
 │   │   ├── twitter.py            # Twitter status, recent tweets, preview, reset-budget
@@ -718,14 +679,12 @@ Smart-Money-Tracker/
 │       ├── portfolio_tracker.py  # Portfolio snapshot service (5 min loop)
 │       ├── accumulation_detector.py  # Accumulation pattern detector
 │       ├── exchange_flow_detector.py # Exchange flow detector (OUTFLOW / INFLOW)
-│       ├── cluster_detector.py   # ClusterAnalyzer background service + get_wallet_cluster_info()
-│       ├── cross_chain_entity.py # Cross-chain entity detection service (normalize, resolve, enrich)
 │       ├── twitter/              # Twitter/X broadcasting module
 │       │   ├── broadcaster.py    # TwitterBroadcaster (BroadcasterProtocol plugin)
 │       │   ├── scoring.py        # Priority scoring engine (0-100 pts, all alert types)
 │       │   ├── rate_limiter.py   # Token bucket + per-type budget pools + entity cooldown
 │       │   ├── circuit_breaker.py# Circuit breaker (CLOSED/OPEN/HALF_OPEN)
-│       │   ├── templates.py      # Tweet renderer (whale/price/accum/exflow/cluster)
+│       │   ├── templates.py      # Tweet renderer (whale/price/accum/exflow)
 │       │   └── client.py         # Twitter API v2 client (tweepy async)
 │       ├── telegram_channel/     # Telegram Channel broadcasting module
 │       │   ├── broadcaster.py    # TelegramChannelBroadcaster plugin
@@ -750,8 +709,6 @@ Smart-Money-Tracker/
 │   │   ├── cmd_portfolio.py      # /portfolio_add /list /balance /remove /toggle /wallet_pnl
 │   │   ├── cmd_price_alerts.py   # /price_alert_add /price_alerts /delete /toggle
 │   │   ├── cmd_exchange_flows.py # /exchange_flows
-│   │   ├── cmd_clusters.py       # /clusters /cluster_info /wallet_cluster
-│   │   ├── cmd_cross_chain.py   # /entity /entity_lookup
 │   │   ├── cmd_info.py           # /chains /status /invite
 │   │   ├── cmd_help.py           # /help [command]
 │   │   ├── cmd_twitter.py        # /twitter_status /twitter_test /twitter_reset_budget
@@ -760,7 +717,7 @@ Smart-Money-Tracker/
 │   │   └── auto_push.py          # WebSocket listener — pushes all alert types to channels
 │   └── telegram_bot/
 │       ├── bot.py
-│       └── handlers.py           # All commands incl. /entity /entity_lookup /clusters /exchange_flows
+│       └── handlers.py           # All commands incl. /exchange_flows
 │
 ├── config/
 │   ├── chains.py                 # Chain registry (7 chains)

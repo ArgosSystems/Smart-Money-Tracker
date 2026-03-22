@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import SmartLabel, TrackedWallet, WalletPosition, get_db
 from api.services.price_alerts import fetch_token_price, get_trending_tokens
-from api.services.funding_backfiller import backfill_wallet_funding
 from config.chains import CHAIN_NAMES, CHAINS, active_chains
 from config.settings import settings
 
@@ -261,13 +260,6 @@ async def track_wallet(
     await db.commit()
     await db.refresh(wallet)
     await _upsert_smart_label(db, payload.address, payload.chain, payload.label, payload.entity_type, payload.tier)
-    
-    # Backfill historical funding events for clustering
-    try:
-        await backfill_wallet_funding(db, payload.address, payload.chain)
-    except Exception as exc:
-        logger.warning("Failed to backfill wallet funding for %s: %s", payload.address, exc)
-
     return WalletResponse.model_validate(wallet)
 
 

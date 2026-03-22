@@ -558,79 +558,7 @@ class ExchangeFlowEvent(Base):
         )
 
 
-class WalletCluster(Base):
-    """
-    A detected group of wallet addresses likely belonging to the same entity.
 
-    Whales often split funds across 10-20 wallets to obscure position size.
-    Clustering reveals the REAL position by grouping coordinated wallets.
-
-    Detection methods (stored as comma-separated string in detection_methods):
-      funding  — wallet A directly sent ETH/native to wallet B (SEND), B trades same tokens
-      timing   — wallets bought the same token within 5 min of each other, 3+ times
-      pattern  — 3+ wallets moved same direction on same token in same hour, repeated 2+ times
-
-    Never contains addresses with entity_type = 'exchange' in SmartLabel.
-    """
-
-    __tablename__ = "wallet_clusters"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    cluster_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    detection_methods: Mapped[str] = mapped_column(String(50), nullable=False)  # CSV
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    member_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_volume_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    first_detected_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
-    last_updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
-    )
-
-    members: Mapped[list["ClusterMembership"]] = relationship(
-        "ClusterMembership", back_populates="cluster", lazy="select",
-        cascade="all, delete-orphan",
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<WalletCluster #{self.id} {self.chain} "
-            f"members={self.member_count} confidence={self.confidence:.2f} "
-            f"methods={self.detection_methods}>"
-        )
-
-
-class ClusterMembership(Base):
-    """
-    Associates a tracked wallet address with a detected WalletCluster.
-
-    detection_signals: CSV of methods that linked this wallet (e.g., "funding,timing").
-    """
-
-    __tablename__ = "cluster_memberships"
-    __table_args__ = (
-        UniqueConstraint("cluster_id", "wallet_address", "chain", name="uq_cluster_member"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    cluster_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("wallet_clusters.id", ondelete="CASCADE"),
-        nullable=False, index=True,
-    )
-    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
-    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    wallet_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    detection_signals: Mapped[str] = mapped_column(String(100), nullable=False, default="")
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    added_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
-
-    cluster: Mapped["WalletCluster"] = relationship("WalletCluster", back_populates="members")
-
-    def __repr__(self) -> str:
-        return (
-            f"<ClusterMembership cluster={self.cluster_id} "
-            f"{self.chain}:{self.wallet_address[:8]} signals={self.detection_signals}>"
-        )
 
 
 class SeenTransaction(Base):
@@ -650,86 +578,7 @@ class SeenTransaction(Base):
         return f"<SeenTransaction {self.chain}:{self.tx_hash[:12]}…>"
 
 
-class BacktestResult(Base):
-    """
-    Price-outcome record for an AccumulationEvent or ExchangeFlowEvent signal.
 
-    Tracks the token price at the moment the signal fired, then at +24h, +72h,
-    and +7d using DeFiLlama historical prices.  Used to answer:
-    "How accurate is Smart Money Tracker?"
-
-    signal_type: "accumulation" | "exchange_flow"
-    flow_direction: "INFLOW" | "OUTFLOW" | NULL (only for exchange_flow signals)
-    was_correct_72h: True when the price moved >5% in the predicted direction
-                     (up for accumulation/INFLOW, down for OUTFLOW)
-    """
-
-    __tablename__ = "backtest_results"
-    __table_args__ = (
-        UniqueConstraint(
-            "signal_type", "source_event_id",
-            name="uq_backtest_signal",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    signal_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # accumulation | exchange_flow
-    flow_direction: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # INFLOW | OUTFLOW
-    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
-    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True, index=True)
-    token_symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    source_event_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-
-    # Prices fetched from DeFiLlama historical API
-    signal_fired_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, index=True)
-    signal_price_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    price_24h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    price_72h_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    price_7d_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-
-    # Percentage changes vs signal price
-    pnl_24h_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    pnl_72h_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    pnl_7d_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-
-    # Correctness flags (directionally-aware)
-    was_correct_24h: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    was_correct_72h: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-
-    processed_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
-
-    def __repr__(self) -> str:
-        return (
-            f"<BacktestResult {self.signal_type} {self.chain}:{self.wallet_address[:8]} "
-            f"{self.token_symbol} pnl72h={self.pnl_72h_pct} correct={self.was_correct_72h}>"
-        )
-
-
-
-class WalletFundingEvent(Base):
-    """
-    Records direct wallet-to-wallet transfers (primarily native gas tokens)
-    without applying the $10k whale alert threshold.
-    Used exclusively by the clustering service (Method 1: Funding Source).
-    """
-
-    __tablename__ = "wallet_funding_events"
-    __table_args__ = (
-        UniqueConstraint("tx_hash", "chain", name="uq_funding_event_tx_chain"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    chain: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    from_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
-    to_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
-    token_address: Mapped[Optional[str]] = mapped_column(String(42), nullable=True)
-    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    tx_hash: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
-    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
-
-    def __repr__(self) -> str:
-        return f"<WalletFundingEvent {self.chain}:{self.from_address[:8]} → {self.to_address[:8]}>"
 
 
 # ── DB lifecycle helpers ──────────────────────────────────────────────────────
@@ -752,8 +601,6 @@ async def init_db() -> None:
         ("alert_deliveries",    "delivered_at"),
         ("accumulation_events", "fired_at"),
         ("exchange_flow_events","fired_at"),
-        ("backtest_results",    "signal_fired_at"),
-        ("wallet_funding_events", "timestamp"),
     ]:
         try:
             async with engine.begin() as conn:
